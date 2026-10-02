@@ -22,7 +22,7 @@ export function clearAuthCookie(response) {
 
 export function safeUser(user) {
   return {
-    id: user._id.toString(),
+    id: String(user.id ?? user._id),
     name: user.name,
     email: user.email,
     bio: user.bio,

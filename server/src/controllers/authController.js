@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import User from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 import { clearAuthCookie, createToken, safeUser, setAuthCookie } from '../utils/auth.js';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -30,26 +30,35 @@ function validateRegistration(body) {
 
 export async function register(request, response) {
   const fields = validateRegistration(request.body);
-  const existingUser = await User.findOne({ email: fields.email });
+  const existingUser = await prisma.user.findUnique({ where: { email: fields.email } });
   if (existingUser) return response.status(409).json({ message: 'An account with this email already exists.' });
 
   const [passwordHash, securityAnswerHash] = await Promise.all([
     bcrypt.hash(fields.password, 12),
     bcrypt.hash(fields.securityAnswer.toLowerCase(), 12)
   ]);
-  const user = await User.create({ ...fields, passwordHash, securityAnswerHash });
-  setAuthCookie(response, createToken(user._id.toString()));
+  const user = await prisma.user.create({
+    data: {
+      name: fields.name,
+      email: fields.email,
+      passwordHash,
+      securityQuestion: fields.securityQuestion,
+      securityAnswerHash,
+      teacher: { create: {} }
+    }
+  });
+  setAuthCookie(response, createToken(user.id));
   response.status(201).json({ user: safeUser(user) });
 }
 
 export async function login(request, response) {
   const email = normalizeEmail(request.body.email);
   const password = request.body.password;
-  const user = await User.findOne({ email }).select('+passwordHash');
+  const user = await prisma.user.findUnique({ where: { email } });
   const valid = user && await bcrypt.compare(String(password || ''), user.passwordHash);
   if (!valid) return response.status(401).json({ message: 'Email or password is incorrect.' });
 
-  setAuthCookie(response, createToken(user._id.toString()));
+  setAuthCookie(response, createToken(user.id));
   response.json({ user: safeUser(user) });
 }
 
@@ -66,19 +75,19 @@ export async function changePassword(request, response) {
   const { currentPassword, newPassword } = request.body;
   if (!validatePassword(newPassword)) return response.status(400).json({ message: 'New password must be between 8 and 72 characters.' });
 
-  const user = await User.findById(request.user._id).select('+passwordHash');
+  const user = await prisma.user.findUnique({ where: { id: request.user.id } });
   const valid = await bcrypt.compare(String(currentPassword || ''), user.passwordHash);
   if (!valid) return response.status(400).json({ message: 'Current password is incorrect.' });
 
   user.passwordHash = await bcrypt.hash(newPassword, 12);
-  await user.save();
-  setAuthCookie(response, createToken(user._id.toString()));
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: user.passwordHash } });
+  setAuthCookie(response, createToken(user.id));
   response.json({ message: 'Password updated successfully.' });
 }
 
 export async function getSecurityQuestion(request, response) {
   const email = normalizeEmail(request.body.email);
-  const user = await User.findOne({ email }).select('securityQuestion');
+  const user = await prisma.user.findUnique({ where: { email }, select: { securityQuestion: true } });
   if (!user) return response.status(404).json({ message: 'No account was found for that email.' });
   response.json({ securityQuestion: user.securityQuestion });
 }
@@ -89,12 +98,12 @@ export async function resetPassword(request, response) {
   const newPassword = request.body.newPassword;
   if (!validatePassword(newPassword)) return response.status(400).json({ message: 'New password must be between 8 and 72 characters.' });
 
-  const user = await User.findOne({ email }).select('+securityAnswerHash');
+  const user = await prisma.user.findUnique({ where: { email } });
   const valid = user && await bcrypt.compare(securityAnswer, user.securityAnswerHash);
   if (!valid) return response.status(400).json({ message: 'Security answer is incorrect.' });
 
   user.passwordHash = await bcrypt.hash(newPassword, 12);
-  await user.save();
+  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: user.passwordHash } });
   clearAuthCookie(response);
   response.json({ message: 'Password reset successfully. You can now log in.' });
 }

@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import { config } from './config/env.js';
 import authRoutes from './routes/authRoutes.js';
 import userRoutes from './routes/userRoutes.js';
+import videoRoutes from './routes/videoRoutes.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
 
 const app = express();
@@ -17,6 +18,7 @@ app.get('/api/health', (request, response) => {
 });
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
+app.use('/api', videoRoutes);
 app.use(notFound);
 app.use(errorHandler);
 

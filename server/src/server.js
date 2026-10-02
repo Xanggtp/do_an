@@ -1,15 +1,16 @@
 import app from './app.js';
 import { config } from './config/env.js';
-import { connectDatabase } from './config/db.js';
+import { disconnectDatabase, prisma } from './config/prisma.js';
 
 try {
-  await connectDatabase();
+  await prisma.$connect();
   const server = app.listen(config.port, () => {
     console.log(`API listening on http://localhost:${config.port}`);
   });
 
   const shutdown = async () => {
     server.close(async () => {
+      await disconnectDatabase();
       process.exit(0);
     });
   };

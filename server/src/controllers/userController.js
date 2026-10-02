@@ -1,4 +1,4 @@
-import User from '../models/User.js';
+import { prisma } from '../config/prisma.js';
 import { safeUser } from '../utils/auth.js';
 
 export function getProfile(request, response) {
@@ -18,6 +18,6 @@ export async function updateProfile(request, response) {
     updates.bio = bio;
   }
 
-  const user = await User.findByIdAndUpdate(request.user._id, updates, { new: true, runValidators: true });
+  const user = await prisma.user.update({ where: { id: request.user.id }, data: updates });
   response.json({ user: safeUser(user) });
 }

@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
 import { config } from '../config/env.js';
+import { prisma } from '../config/prisma.js';
 import { cookieName } from '../utils/auth.js';
 
 export async function requireAuth(request, response, next) {
@@ -9,7 +9,7 @@ export async function requireAuth(request, response, next) {
     if (!token) return response.status(401).json({ message: 'Authentication required.' });
 
     const payload = jwt.verify(token, config.jwtSecret);
-    const user = await User.findById(payload.userId);
+    const user = await prisma.user.findUnique({ where: { id: payload.userId } });
     if (!user) return response.status(401).json({ message: 'Authentication required.' });
 
     request.user = user;

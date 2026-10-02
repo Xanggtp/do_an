@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum VideoStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum FeedbackCategory {
+  STRENGTH
+  GROWTH_OPPORTUNITY
+}
+
+model User {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  email              String   @unique
+  name               String
+  bio                String   @default("")
+  passwordHash       String
+  securityQuestion   String
+  securityAnswerHash String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  teacher            Teacher?
+
+  @@index([createdAt])
+}
+
+model Teacher {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @unique @db.ObjectId
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  classes   Class[]
+}
+
+model Class {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String
+  subject    String
+  gradeLevel String
+  teacherId  String   @db.ObjectId
+  createdAt  DateTime @default(now())
+  teacher    Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  videos     Video[]
+
+  @@index([teacherId, createdAt])
+}
+
+model Video {
+  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  filename    String
+  fileUrl     String
+  duration    Float?
+  status      VideoStatus @default(PENDING)
+  classId     String      @db.ObjectId
+  createdAt   DateTime    @default(now())
+  processedAt DateTime?
+  error       String?
+  class       Class       @relation(fields: [classId], references: [id], onDelete: Cascade)
+  feedback    Feedback[]
+  analytics   Analytics?
+
+  @@index([classId, createdAt])
+  @@index([status, createdAt])
+}
+
+model Feedback {
+  id              String           @id @default(auto()) @map("_id") @db.ObjectId
+  videoId         String           @db.ObjectId
+  timestamp       Float
+  category        FeedbackCategory
+  rubricDimension String
+  title           String
+  description     String
+  video           Video            @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId, timestamp])
+}
+
+model Analytics {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  videoId            String   @unique @db.ObjectId
+  copusTimeline      Json
+  bloomsDistribution Json
+  video              Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+}
