@@ -7,3 +7,5 @@ client/dist/
 !.env.example
 *.log
 .DS_Store
+start.bat
+context.md
