@@ -1,4 +1,4 @@
-generator client {
+Get-ChildItem .\server -Filter schema.prisma -Recursegenerator client {
   provider = "prisma-client-js"
 }
 
