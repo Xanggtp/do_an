@@ -48,6 +48,32 @@ function serializeVideo(video) {
   };
 }
 
+const semesterPattern = /^\d{4}\.[123]$/;
+
+async function syncLegacySemesters(teacher) {
+  const [records, legacyClasses] = await Promise.all([
+    prisma.semester.findMany({ where: { teacherId: teacher.id }, orderBy: { createdAt: 'asc' } }),
+    prisma.class.findMany({ where: { teacherId: teacher.id }, select: { semester: true } })
+  ]);
+  const knownCodes = new Set(records.map((item) => item.code));
+  const legacyCodes = [...new Set(legacyClasses.map((item) => item.semester))]
+    .filter((code) => semesterPattern.test(code) && !knownCodes.has(code));
+  if (legacyCodes.length) {
+    await Promise.all(legacyCodes.map((code) => prisma.semester.create({ data: { code, teacherId: teacher.id } }).catch((error) => {
+      if (error.code !== 'P2002') throw error;
+      return null;
+    })));
+  }
+  const allSemesters = await prisma.semester.findMany({ where: { teacherId: teacher.id }, orderBy: { createdAt: 'asc' } });
+  for (const sem of allSemesters) {
+    await prisma.class.updateMany({
+      where: { teacherId: teacher.id, semester: sem.code, semesterId: null },
+      data: { semesterId: sem.id }
+    });
+  }
+  return allSemesters;
+}
+
 export async function getDashboard(request, response) {
   const teacher = await teacherForUser(request.user.id);
   if (request.params.teacherId !== teacher.id) throw Object.assign(new Error('Teacher not found.'), { statusCode: 404 });
@@ -63,11 +89,128 @@ export async function getDashboard(request, response) {
 export async function createClass(request, response) {
   const teacher = await teacherForUser(request.user.id);
   const name = String(request.body.name || '').trim();
+  const classCode = String(request.body.classCode || '').trim();
   const subject = String(request.body.subject || '').trim();
-  const gradeLevel = String(request.body.gradeLevel || '').trim();
-  if (!name || !subject || !gradeLevel) return response.status(400).json({ message: 'Name, subject, and grade level are required.' });
-  const record = await prisma.class.create({ data: { name, subject, gradeLevel, teacherId: teacher.id } });
+  const semester = String(request.body.semester || '').trim();
+  if (!name || !classCode || !subject || !semesterPattern.test(semester)) {
+    return response.status(400).json({ message: 'Class, class ID, subject, and a valid semester (YYYY.1, YYYY.2, or YYYY.3) are required.' });
+  }
+  const semesterRecord = await prisma.semester.findFirst({ where: { teacherId: teacher.id, code: semester } });
+  if (!semesterRecord) return response.status(404).json({ message: 'Create the semester before adding classes to it.' });
+  const existing = await prisma.class.findFirst({
+    where: { teacherId: teacher.id, semester, OR: [{ name }, { classCode }] }
+  });
+  if (existing) return response.status(409).json({ message: 'The class name or class ID already exists in the selected semester.' });
+  const record = await prisma.class.create({ data: { name, classCode, subject, semester, semesterId: semesterRecord.id, teacherId: teacher.id } });
   response.status(201).json({ class: record });
+}
+
+export async function getSemesters(request, response) {
+  const teacher = await teacherForUser(request.user.id);
+  const semesters = await syncLegacySemesters(teacher);
+  response.json({ semesters });
+}
+
+export async function createSemester(request, response) {
+  const teacher = await teacherForUser(request.user.id);
+  const code = String(request.body.code || '').trim();
+  if (!semesterPattern.test(code)) return response.status(400).json({ message: 'Use a semester code in YYYY.1, YYYY.2, or YYYY.3 format.' });
+  const existing = await prisma.semester.findFirst({ where: { teacherId: teacher.id, code } });
+  if (existing) return response.status(409).json({ message: 'This semester already exists.' });
+  const semester = await prisma.semester.create({ data: { code, teacherId: teacher.id } });
+  response.status(201).json({ semester });
+}
+
+export async function getClasses(request, response) {
+  const teacher = await teacherForUser(request.user.id);
+  const semester = String(request.query.semester || '').trim();
+  if (!semester) {
+    const classes = await prisma.class.findMany({
+      where: { teacherId: teacher.id },
+      orderBy: { createdAt: 'asc' }
+    });
+    return response.json({ classes });
+  }
+  if (!semesterPattern.test(semester)) {
+    return response.status(400).json({ message: 'A valid semester (YYYY.1, YYYY.2, or YYYY.3) is required.' });
+  }
+  const semesterRecord = await prisma.semester.findFirst({ where: { teacherId: teacher.id, code: semester } });
+  if (!semesterRecord) return response.status(404).json({ message: 'Semester not found.' });
+  const classes = await prisma.class.findMany({
+    where: { teacherId: teacher.id, semester },
+    orderBy: { createdAt: 'asc' }
+  });
+  response.json({ classes });
+}
+
+export async function updateClass(request, response) {
+  const teacher = await teacherForUser(request.user.id);
+  const classId = request.params.id || request.params.classId;
+  const existing = await prisma.class.findFirst({
+    where: { id: classId, teacherId: teacher.id }
+  });
+  if (!existing) {
+    return response.status(404).json({ message: 'Class not found.' });
+  }
+
+  const name = request.body.name !== undefined ? String(request.body.name || '').trim() : existing.name;
+  const classCode = request.body.classCode !== undefined ? String(request.body.classCode || '').trim() : existing.classCode;
+  const subject = request.body.subject !== undefined ? String(request.body.subject || '').trim() : existing.subject;
+  const semester = request.body.semester !== undefined ? String(request.body.semester || '').trim() : existing.semester;
+
+  if (!name || !classCode || !subject || !semesterPattern.test(semester)) {
+    return response.status(400).json({ message: 'Class, class ID, subject, and a valid semester (YYYY.1, YYYY.2, or YYYY.3) are required.' });
+  }
+
+  const semesterRecord = await prisma.semester.findFirst({ where: { teacherId: teacher.id, code: semester } });
+  if (!semesterRecord) return response.status(404).json({ message: 'Create the semester before adding classes to it.' });
+
+  const duplicate = await prisma.class.findFirst({
+    where: {
+      teacherId: teacher.id,
+      semester,
+      id: { not: classId },
+      OR: [{ name }, { classCode }]
+    }
+  });
+  if (duplicate) {
+    return response.status(409).json({ message: 'The class name or class ID already exists in the selected semester.' });
+  }
+
+  const updated = await prisma.class.update({
+    where: { id: classId },
+    data: {
+      name,
+      classCode,
+      subject,
+      semester,
+      semesterId: semesterRecord.id
+    }
+  });
+  response.json({ class: updated });
+}
+
+export async function deleteClass(request, response) {
+  const teacher = await teacherForUser(request.user.id);
+  const classId = request.params.id || request.params.classId;
+  const existing = await prisma.class.findFirst({
+    where: { id: classId, teacherId: teacher.id }
+  });
+  if (!existing) {
+    return response.status(404).json({ message: 'Class not found.' });
+  }
+
+  const videos = await prisma.video.findMany({ where: { classId }, select: { id: true, fileUrl: true } });
+  for (const v of videos) {
+    const objectKey = v.fileUrl.startsWith('/api/videos/media/') ? decodeURIComponent(v.fileUrl.split('/').pop()) : v.fileUrl;
+    await removeObject(objectKey).catch(() => {});
+    await prisma.feedback.deleteMany({ where: { videoId: v.id } }).catch(() => {});
+    await prisma.analytics.deleteMany({ where: { videoId: v.id } }).catch(() => {});
+  }
+  await prisma.video.deleteMany({ where: { classId } }).catch(() => {});
+  await prisma.class.delete({ where: { id: classId } });
+
+  response.json({ message: 'Class deleted successfully.', id: classId });
 }
 
 export async function uploadObservation(request, response) {

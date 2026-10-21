@@ -3,10 +3,15 @@ import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import {
   createClass,
+  createSemester,
+  deleteClass,
+  getClasses,
+  getSemesters,
   getDashboard,
   getObservation,
   getVideoStatus,
   streamVideo,
+  updateClass,
   uploadObservation,
   uploadVideo
 } from '../controllers/videoController.js';
@@ -15,6 +20,11 @@ const router = Router();
 router.use(requireAuth);
 router.get('/teachers/:teacherId/dashboard', asyncHandler(getDashboard));
 router.post('/classes', asyncHandler(createClass));
+router.get('/classes', asyncHandler(getClasses));
+router.put('/classes/:id', asyncHandler(updateClass));
+router.delete('/classes/:id', asyncHandler(deleteClass));
+router.get('/semesters', asyncHandler(getSemesters));
+router.post('/semesters', asyncHandler(createSemester));
 router.post('/videos/upload', uploadVideo, asyncHandler(uploadObservation));
 router.post('/videos', uploadVideo, asyncHandler(uploadObservation));
 router.get('/videos/:videoId/status', asyncHandler(getVideoStatus));

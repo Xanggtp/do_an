@@ -1,4 +1,4 @@
-Get-ChildItem .\server -Filter schema.prisma -Recursegenerator client {
+generator client {
   provider = "prisma-client-js"
 }
 
@@ -40,19 +40,36 @@ model Teacher {
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   classes   Class[]
+  semesters Semester[]
+}
+
+model Semester {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  code      String
+  teacherId String   @db.ObjectId
+  createdAt DateTime @default(now())
+  teacher   Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  classes   Class[]
+
+  @@unique([teacherId, code])
+  @@index([teacherId, createdAt])
 }
 
 model Class {
   id         String   @id @default(auto()) @map("_id") @db.ObjectId
   name       String
+  classCode  String?
   subject    String
-  gradeLevel String
+  semester   String
+  semesterId String?  @db.ObjectId
   teacherId  String   @db.ObjectId
   createdAt  DateTime @default(now())
   teacher    Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  semesterRecord Semester? @relation(fields: [semesterId], references: [id])
   videos     Video[]
 
   @@index([teacherId, createdAt])
+  @@unique([teacherId, semester, name])
 }
 
 model Video {

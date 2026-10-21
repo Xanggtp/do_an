@@ -11,21 +11,18 @@ export const mockClasses = [
     id: 'class-algebra-1',
     name: 'Algebra 1',
     subject: 'Mathematics',
-    gradeLevel: 'Grade 9',
     accent: 'coral'
   },
   {
     id: 'class-ap-physics',
     name: 'AP Physics',
     subject: 'Science',
-    gradeLevel: 'Grade 12',
     accent: 'sage'
   },
   {
     id: 'class-geometry',
     name: 'Geometry',
     subject: 'Mathematics',
-    gradeLevel: 'Grade 10',
     accent: 'ochre'
   }
 ];
@@ -166,16 +163,25 @@ export function getClassVideos(classId) {
   return mockVideos.filter((video) => video.classId === classId);
 }
 
-export function createUploadedObservation(file, classId = 'class-algebra-1') {
+export function createUploadedObservation(file, classId = 'class-algebra-1', metadata = {}) {
   return {
     id: `local-${Date.now()}`,
     classId,
-    title: file.name.replace(/\.mp4$/i, ''),
+    className: metadata.className || '',
+    classCode: metadata.classCode || '',
+    subject: metadata.subject || '',
+    semester: metadata.semester || '',
+    title: metadata.className ? `${metadata.className} · ${file.name.replace(/\.mp4$/i, '')}` : file.name.replace(/\.mp4$/i, ''),
     date: new Date().toISOString(),
     duration: 0,
     status: 'PROCESSING',
     source: URL.createObjectURL(file),
-    summary: 'Your local observation is being prepared for analysis.',
+    summary: metadata.className ? `Observation for ${metadata.className}${metadata.subject ? ' (' + metadata.subject + ')' : ''}. AI questioned and activity analysis ready.` : 'Your local observation is being prepared for analysis.',
+    materials: {
+      slides: metadata.slides ? { name: metadata.slides.name, size: metadata.slides.size } : null,
+      lessonPlan: metadata.lessonPlan ? { name: metadata.lessonPlan.name, size: metadata.lessonPlan.size } : null,
+      audio: metadata.audio ? { name: metadata.audio.name, size: metadata.audio.size } : null,
+    },
     thumbnail: 'linear-gradient(135deg, #1d2a27, #7b9a86)'
   };
 }
