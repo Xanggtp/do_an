@@ -182,3 +182,18 @@ html[data-theme='dark'] .class-action-btn.delete:hover { background: #3d231f; co
 .materials-label { color: #87928c; font-weight: 700; }
 .material-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; background: #eef2eb; color: #44534b; border-radius: 4px; border: 1px solid #d4d9d0; font-size: 0.68rem; font-weight: 600; }
 html[data-theme='dark'] .material-badge { background: #20312a; border-color: #3b5145; color: #c4d3ca; }
+.semester-filter-dropdown { position: relative; display: inline-flex; }
+.icon-button-light.is-active { color: #1d2a27; background: #e9ece2; border-color: #7b9a86; }
+.semester-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 50; min-width: 170px; padding: 6px; background: #fbfaf6; border: 1px solid #dce0d7; border-radius: 6px; box-shadow: 0 10px 25px rgba(29, 42, 39, 0.12); }
+.semester-menu-header { padding: 5px 10px 6px; color: #87928c; font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #dce0d7; margin-bottom: 4px; }
+.semester-menu-item { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 7px 10px; color: #4d685d; font-size: 0.73rem; font-weight: 600; text-align: left; background: transparent; border: 0; border-radius: 4px; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.semester-menu-item:hover { background: #ecebe1; color: #1d2a27; }
+.semester-menu-item.is-selected { background: #e9ece2; color: #1d2a27; font-weight: 700; }
+.empty-class-list { padding: 20px 10px; color: #87928c; font-size: 0.72rem; text-align: center; border: 1px dashed #dce0d7; border-radius: 5px; margin-top: 10px; }
+html[data-theme='dark'] .icon-button-light.is-active { color: #e6eee9; background: #263a32; border-color: #6e927d; }
+html[data-theme='dark'] .semester-menu { background: #1a2723; border-color: #30423a; box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4); }
+html[data-theme='dark'] .semester-menu-header { color: #82958b; border-color: #30423a; }
+html[data-theme='dark'] .semester-menu-item { color: #c4d3ca; }
+html[data-theme='dark'] .semester-menu-item:hover { background: #263a32; color: #e6eee9; }
+html[data-theme='dark'] .semester-menu-item.is-selected { background: #20312a; color: #e6eee9; }
+html[data-theme='dark'] .empty-class-list { color: #82958b; border-color: #30423a; }

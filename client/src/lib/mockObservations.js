@@ -11,18 +11,21 @@ export const mockClasses = [
     id: 'class-algebra-1',
     name: 'Algebra 1',
     subject: 'Mathematics',
+    semester: '2026.1',
     accent: 'coral'
   },
   {
     id: 'class-ap-physics',
     name: 'AP Physics',
     subject: 'Science',
+    semester: '2026.1',
     accent: 'sage'
   },
   {
     id: 'class-geometry',
     name: 'Geometry',
     subject: 'Mathematics',
+    semester: '2026.2',
     accent: 'ochre'
   }
 ];
