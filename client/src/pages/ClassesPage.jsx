@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, BookOpen, Check, LoaderCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
 import api from '../lib/api.js';
@@ -9,6 +9,10 @@ const initialForm = { name: '', classCode: '', subject: '' };
 
 export function ClassesPage() {
   const { t } = usePreferences();
+  const [searchParams] = useSearchParams();
+  const paramSemester = searchParams.get('semester');
+  const paramEditId = searchParams.get('editId');
+
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
   const [classes, setClasses] = useState([]);
@@ -25,13 +29,16 @@ export function ClassesPage() {
       .then((data) => {
         if (!active) return;
         setSemesters(data.semesters);
-        setSemester((current) => current && data.semesters.some((item) => item.code === current) ? current : (data.semesters[0]?.code || ''));
+        const preferred = (paramSemester && data.semesters.some((item) => item.code === paramSemester))
+          ? paramSemester
+          : (data.semesters[0]?.code || '');
+        setSemester((current) => current && data.semesters.some((item) => item.code === current) ? current : preferred);
       })
       .catch((error) => {
         if (active) setState({ busy: false, message: '', error: error.message });
       });
     return () => { active = false; };
-  }, []);
+  }, [paramSemester]);
 
   useEffect(() => {
     if (!semester) {
@@ -42,7 +49,20 @@ export function ClassesPage() {
     setState((current) => ({ ...current, busy: true, error: '' }));
     api(`/api/classes?semester=${encodeURIComponent(semester)}`)
       .then((data) => {
-        if (active) setClasses(data.classes);
+        if (active) {
+          setClasses(data.classes);
+          if (paramEditId) {
+            const itemToEdit = data.classes.find((c) => c.id === paramEditId);
+            if (itemToEdit) {
+              setEditingId(itemToEdit.id);
+              setForm({
+                name: itemToEdit.name,
+                classCode: itemToEdit.classCode || '',
+                subject: itemToEdit.subject
+              });
+            }
+          }
+        }
       })
       .catch((error) => {
         if (active) setState({ busy: false, message: '', error: error.message });
@@ -51,7 +71,7 @@ export function ClassesPage() {
         if (active) setState((current) => ({ ...current, busy: false }));
       });
     return () => { active = false; };
-  }, [semester]);
+  }, [semester, paramEditId]);
 
   const addSemester = async (event) => {
     event.preventDefault();

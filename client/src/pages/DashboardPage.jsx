@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, Check, ChevronRight, Clock3, Film, Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Check, Clock3, Film, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -42,8 +42,9 @@ function VideoCard({ video, language, t }) {
 export function DashboardPage() {
   const { user } = useAuth();
   const { language, t } = usePreferences();
-  const [classes, setClasses] = useState(mockClasses);
-  const [activeClassId, setActiveClassId] = useState(mockClasses[0].id);
+  const [classes, setClasses] = useState([]);
+  const [activeClassId, setActiveClassId] = useState('');
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [semesters, setSemesters] = useState([]);
   const [selectedSemester, setSelectedSemester] = useState('');
@@ -68,17 +69,20 @@ export function DashboardPage() {
     api('/api/classes')
       .then((data) => {
         if (!active) return;
-        if (Array.isArray(data.classes) && data.classes.length) {
+        if (Array.isArray(data.classes)) {
           const accents = ['sage', 'coral', 'ochre'];
           const userClasses = data.classes.map((cls, idx) => ({
             ...cls,
             accent: accents[idx % accents.length]
           }));
           setClasses(userClasses);
-          setActiveClassId((prev) => (userClasses.some((c) => c.id === prev) ? prev : userClasses[0].id));
+          setActiveClassId((prev) => (userClasses.some((c) => c.id === prev) ? prev : (userClasses[0]?.id || '')));
         }
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false);
+      });
     return () => { active = false; };
   }, []);
 
@@ -106,9 +110,6 @@ export function DashboardPage() {
     const list = new Set();
     semesters.forEach((item) => item.code && list.add(item.code));
     classes.forEach((item) => item.semester && list.add(item.semester));
-    if (list.size === 0) {
-      return ['2026.1', '2026.2'];
-    }
     return Array.from(list).sort();
   }, [semesters, classes]);
 
@@ -123,6 +124,23 @@ export function DashboardPage() {
     const nextFiltered = sem ? classes.filter((item) => item.semester === sem) : classes;
     if (nextFiltered.length && !nextFiltered.some((item) => item.id === activeClassId)) {
       setActiveClassId(nextFiltered[0].id);
+    }
+  };
+
+  const handleDeleteActiveClass = async (classToDelete) => {
+    if (!classToDelete) return;
+    const confirmed = window.confirm(t('confirmDeleteClass'));
+    if (!confirmed) return;
+    try {
+      await api(`/api/classes/${classToDelete.id}`, { method: 'DELETE' });
+      setClasses((prev) => {
+        const next = prev.filter((item) => item.id !== classToDelete.id);
+        const nextFiltered = selectedSemester ? next.filter((item) => item.semester === selectedSemester) : next;
+        setActiveClassId(nextFiltered[0]?.id || (next[0]?.id || ''));
+        return next;
+      });
+    } catch (error) {
+      alert(error.message || 'Failed to delete class.');
     }
   };
 
@@ -142,7 +160,6 @@ export function DashboardPage() {
             <h1>{t('goodMorning')} {firstName}.</h1>
             <p className="page-subtitle">{t('dashboardSubtitle')}</p>
           </div>
-          <Link className="primary-button" to="/upload"><Plus size={17} /> Upload observation</Link>
         </header>
         <div className="workspace-layout">
           <aside className="class-rail">
@@ -151,57 +168,67 @@ export function DashboardPage() {
                 <p className="eyebrow">{t('yourClasses')}{selectedSemester ? ` · ${selectedSemester}` : ''}</p>
                 <strong>{filteredClasses.length} {t('activeClasses')}</strong>
               </div>
-              <div className="semester-filter-dropdown" ref={dropdownRef}>
-                <button
-                  type="button"
-                  className={`icon-button-light${selectedSemester ? ' is-active' : ''}`}
-                  onClick={() => setIsDropdownOpen((prev) => !prev)}
-                  aria-label={t('filterClasses')}
-                  aria-expanded={isDropdownOpen}
-                  aria-haspopup="listbox"
-                  title={selectedSemester ? `${t('academicSemester')}: ${selectedSemester}` : t('filterClasses')}
+              <div className="class-rail-tools">
+                <Link
+                  to={selectedSemester ? `/classes?semester=${encodeURIComponent(selectedSemester)}` : (activeClass?.semester ? `/classes?semester=${encodeURIComponent(activeClass.semester)}` : '/classes')}
+                  className="icon-button-light"
+                  title={t('manageClasses')}
+                  aria-label={t('manageClasses')}
                 >
-                  <SlidersHorizontal size={15} />
-                </button>
-                <select
-                  className="sr-only"
-                  value={selectedSemester}
-                  onChange={(event) => handleSelectSemester(event.target.value)}
-                  aria-label={t('filterClasses')}
-                >
-                  <option value="">{t('allSemesters')}</option>
-                  {semesterOptions.map((sem) => (
-                    <option key={sem} value={sem}>{sem}</option>
-                  ))}
-                </select>
-                {isDropdownOpen && (
-                  <div className="semester-menu" role="listbox" aria-label={t('filterClasses')}>
-                    <div className="semester-menu-header">{t('academicSemester')}</div>
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={!selectedSemester}
-                      className={`semester-menu-item${!selectedSemester ? ' is-selected' : ''}`}
-                      onClick={() => handleSelectSemester('')}
-                    >
-                      <span>{t('allSemesters')}</span>
-                      {!selectedSemester && <Check size={14} />}
-                    </button>
+                  <BookOpen size={15} />
+                </Link>
+                <div className="semester-filter-dropdown" ref={dropdownRef}>
+                  <button
+                    type="button"
+                    className={`icon-button-light${selectedSemester ? ' is-active' : ''}`}
+                    onClick={() => setIsDropdownOpen((prev) => !prev)}
+                    aria-label={t('filterClasses')}
+                    aria-expanded={isDropdownOpen}
+                    aria-haspopup="listbox"
+                    title={selectedSemester ? `${t('academicSemester')}: ${selectedSemester}` : t('filterClasses')}
+                  >
+                    <SlidersHorizontal size={15} />
+                  </button>
+                  <select
+                    className="sr-only"
+                    value={selectedSemester}
+                    onChange={(event) => handleSelectSemester(event.target.value)}
+                    aria-label={t('filterClasses')}
+                  >
+                    <option value="">{t('allSemesters')}</option>
                     {semesterOptions.map((sem) => (
+                      <option key={sem} value={sem}>{sem}</option>
+                    ))}
+                  </select>
+                  {isDropdownOpen && (
+                    <div className="semester-menu" role="listbox" aria-label={t('filterClasses')}>
+                      <div className="semester-menu-header">{t('academicSemester')}</div>
                       <button
-                        key={sem}
                         type="button"
                         role="option"
-                        aria-selected={selectedSemester === sem}
-                        className={`semester-menu-item${selectedSemester === sem ? ' is-selected' : ''}`}
-                        onClick={() => handleSelectSemester(sem)}
+                        aria-selected={!selectedSemester}
+                        className={`semester-menu-item${!selectedSemester ? ' is-selected' : ''}`}
+                        onClick={() => handleSelectSemester('')}
                       >
-                        <span>{sem}</span>
-                        {selectedSemester === sem && <Check size={14} />}
+                        <span>{t('allSemesters')}</span>
+                        {!selectedSemester && <Check size={14} />}
                       </button>
-                    ))}
-                  </div>
-                )}
+                      {semesterOptions.map((sem) => (
+                        <button
+                          key={sem}
+                          type="button"
+                          role="option"
+                          aria-selected={selectedSemester === sem}
+                          className={`semester-menu-item${selectedSemester === sem ? ' is-selected' : ''}`}
+                          onClick={() => handleSelectSemester(sem)}
+                        >
+                          <span>{sem}</span>
+                          {selectedSemester === sem && <Check size={14} />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             <div className="class-list">
@@ -222,7 +249,7 @@ export function DashboardPage() {
                 ))
               ) : (
                 <div className="empty-class-list">
-                  {t('noClassesInSemester')}
+                  {classes.length ? t('noClassesInSemester') : t('noClassesFound')}
                 </div>
               )}
             </div>
@@ -234,7 +261,28 @@ export function DashboardPage() {
                 <div className="library-heading">
                   <div>
                     <p className="eyebrow">{t('selectedClass')}</p>
-                    <h2>{activeClass.name}</h2>
+                    <div className="library-title-row">
+                      <h2>{activeClass.name}</h2>
+                      <div className="class-heading-actions">
+                        <Link
+                          to={`/classes?semester=${encodeURIComponent(activeClass.semester || '')}&editId=${activeClass.id}`}
+                          className="class-action-btn edit"
+                          title={t('editClass')}
+                          aria-label={t('editClass')}
+                        >
+                          <Pencil size={15} />
+                        </Link>
+                        <button
+                          type="button"
+                          className="class-action-btn delete"
+                          onClick={() => handleDeleteActiveClass(activeClass)}
+                          title={t('deleteClass')}
+                          aria-label={t('deleteClass')}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
                     <p>{activeClass.classCode ? `${activeClass.classCode} · ${activeClass.subject}` : activeClass.subject}</p>
                   </div>
                   <div className="library-tools">
@@ -255,19 +303,29 @@ export function DashboardPage() {
                     <Film size={23} />
                     <h3>{t('noMatchingObservations')}</h3>
                     <p>{t('tryAnotherSearch')}</p>
+                    <Link
+                      to={`/upload?classId=${activeClass.id}`}
+                      state={{ classId: activeClass.id, classItem: activeClass }}
+                      className="primary-button"
+                      style={{ marginTop: '16px', minHeight: '36px', height: '36px', padding: '0 15px', fontSize: '0.74rem' }}
+                    >
+                      <UploadCloud size={15} /> {t('uploadObservation')}
+                    </Link>
                   </div>
                 )}
-                <Link to="/upload" className="dashboard-upload-link">
-                  <span className="upload-link-icon"><Plus size={17} /></span>
-                  <span><strong>Add another observation</strong><small>Upload an MP4 for {activeClass.name}</small></span>
-                  <ChevronRight size={17} />
-                </Link>
               </>
             ) : (
               <div className="empty-state">
                 <Film size={23} />
                 <h3>{t('noClassesFound')}</h3>
                 <p>{t('classesAppear')}</p>
+                <Link
+                  to="/classes"
+                  className="primary-button"
+                  style={{ marginTop: '16px', minHeight: '36px', height: '36px', padding: '0 15px', fontSize: '0.74rem' }}
+                >
+                  <Plus size={15} /> {t('addClass')}
+                </Link>
               </div>
             )}
           </section>

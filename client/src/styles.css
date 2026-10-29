@@ -197,3 +197,17 @@ html[data-theme='dark'] .semester-menu-item { color: #c4d3ca; }
 html[data-theme='dark'] .semester-menu-item:hover { background: #263a32; color: #e6eee9; }
 html[data-theme='dark'] .semester-menu-item.is-selected { background: #20312a; color: #e6eee9; }
 html[data-theme='dark'] .empty-class-list { color: #82958b; border-color: #30423a; }
+
+
+.assigned-class-box { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #fbfaf6; border: 1px solid #d4d9d0; border-radius: 5px; }
+.assigned-class-box-info { display: flex; flex-direction: column; gap: 3px; }
+.assigned-class-box-info strong { color: #18211f; font-size: 0.82rem; }
+.assigned-class-box-info small { color: #87928c; font-size: 0.72rem; }
+html[data-theme='dark'] .assigned-class-box { background: #1e2c26; border-color: #31443b; }
+html[data-theme='dark'] .assigned-class-box-info strong { color: #e6eee9; }
+html[data-theme='dark'] .assigned-class-box-info small { color: #8fa298; }
+
+.library-title-row { display: flex; align-items: center; gap: 12px; margin-bottom: 5px; }
+.library-title-row h2 { margin-bottom: 0; }
+.class-heading-actions { display: inline-flex; align-items: center; gap: 6px; }
+.class-rail-tools { display: flex; align-items: center; gap: 6px; }

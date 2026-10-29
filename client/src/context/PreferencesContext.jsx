@@ -145,6 +145,8 @@ const translations = {
     selectClass: 'Select class',
     chooseClass: 'Choose class',
     noClassesFound: 'No classes found. Add one in Manage Classes first.',
+    uploadObservation: 'Upload observation',
+    assignedClass: 'Assigned class',
   },
   vi: {
     workspace: 'Không gian làm việc',
@@ -288,6 +290,8 @@ const translations = {
     selectClass: 'Chọn một lớp học',
     chooseClass: 'Chọn lớp',
     noClassesFound: 'Chưa có lớp nào. Hãy thêm lớp trong Quản lý lớp học trước.',
+    uploadObservation: 'Tải lên quan sát',
+    assignedClass: 'Lớp được chỉ định',
   },
 };
 

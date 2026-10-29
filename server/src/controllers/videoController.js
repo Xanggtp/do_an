@@ -146,6 +146,9 @@ export async function getClasses(request, response) {
 export async function updateClass(request, response) {
   const teacher = await teacherForUser(request.user.id);
   const classId = request.params.id || request.params.classId;
+  if (!classId || !/^[0-9a-fA-F]{24}$/.test(classId)) {
+    return response.status(404).json({ message: 'Class not found.' });
+  }
   const existing = await prisma.class.findFirst({
     where: { id: classId, teacherId: teacher.id }
   });
@@ -193,6 +196,9 @@ export async function updateClass(request, response) {
 export async function deleteClass(request, response) {
   const teacher = await teacherForUser(request.user.id);
   const classId = request.params.id || request.params.classId;
+  if (!classId || !/^[0-9a-fA-F]{24}$/.test(classId)) {
+    return response.status(404).json({ message: 'Class not found.' });
+  }
   const existing = await prisma.class.findFirst({
     where: { id: classId, teacherId: teacher.id }
   });
@@ -202,8 +208,10 @@ export async function deleteClass(request, response) {
 
   const videos = await prisma.video.findMany({ where: { classId }, select: { id: true, fileUrl: true } });
   for (const v of videos) {
-    const objectKey = v.fileUrl.startsWith('/api/videos/media/') ? decodeURIComponent(v.fileUrl.split('/').pop()) : v.fileUrl;
-    await removeObject(objectKey).catch(() => {});
+    if (v.fileUrl && typeof v.fileUrl === 'string') {
+      const objectKey = v.fileUrl.startsWith('/api/videos/media/') ? decodeURIComponent(v.fileUrl.split('/').pop()) : v.fileUrl;
+      await removeObject(objectKey).catch(() => {});
+    }
     await prisma.feedback.deleteMany({ where: { videoId: v.id } }).catch(() => {});
     await prisma.analytics.deleteMany({ where: { videoId: v.id } }).catch(() => {});
   }

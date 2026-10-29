@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, AudioLines, CheckCircle2, FileText, FileVideo, LoaderCircle, Presentation, UploadCloud, X } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
 import api from '../lib/api.js';
@@ -16,12 +16,17 @@ function formatBytes(bytes) {
 export function UploadPage() {
   const { t } = usePreferences();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const targetClassId = searchParams.get('classId') || location.state?.classId || '';
+  const initialClass = location.state?.classItem || null;
+
   const inputRefs = useRef({});
   const timerRef = useRef(null);
   const [files, setFiles] = useState({});
-  const [classes, setClasses] = useState([]);
-  const [selectedClassId, setSelectedClassId] = useState('');
-  const [loadingClasses, setLoadingClasses] = useState(true);
+  const [classes, setClasses] = useState(initialClass ? [initialClass] : []);
+  const [selectedClassId, setSelectedClassId] = useState(targetClassId || initialClass?.id || '');
+  const [loadingClasses, setLoadingClasses] = useState(!initialClass);
   const [stage, setStage] = useState('select');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
@@ -33,20 +38,33 @@ export function UploadPage() {
     api('/api/classes')
       .then((data) => {
         if (!active) return;
-        const list = Array.isArray(data.classes) && data.classes.length ? data.classes : mockClasses;
+        const list = Array.isArray(data.classes) ? data.classes : [];
         setClasses(list);
-        if (list.length) setSelectedClassId(list[0].id);
+        if (targetClassId && list.some((item) => item.id === targetClassId)) {
+          setSelectedClassId(targetClassId);
+        } else if (initialClass?.id && list.some((item) => item.id === initialClass.id)) {
+          setSelectedClassId(initialClass.id);
+        } else if (!targetClassId && list.length && !selectedClassId) {
+          setSelectedClassId(list[0].id);
+        }
       })
       .catch(() => {
         if (!active) return;
-        setClasses(mockClasses);
-        if (mockClasses.length) setSelectedClassId(mockClasses[0].id);
+        setClasses([]);
       })
       .finally(() => {
         if (active) setLoadingClasses(false);
       });
     return () => { active = false; };
-  }, []);
+  }, [targetClassId, initialClass]);
+
+  const assignedClass = useMemo(() => {
+    return (
+      classes.find((item) => item.id === selectedClassId) ||
+      initialClass ||
+      (classes.length ? classes[0] : null)
+    );
+  }, [classes, selectedClassId, initialClass]);
 
   const uploadTypes = [
     { id: 'video', title: t('videoFiles'), dropLabel: t('dropVideo'), formats: t('videoFormats'), accept: 'video/mp4,.mp4', icon: FileVideo },
@@ -73,7 +91,7 @@ export function UploadPage() {
 
   const startUpload = () => {
     if (!files.video) return setError(t('selectVideo'));
-    if (!selectedClassId && classes.length) return setError(t('selectClass'));
+    if (!assignedClass) return setError(t('selectClass'));
     setStage('uploading');
     setProgress(7);
     timerRef.current = setInterval(() => setProgress((value) => {
@@ -89,8 +107,8 @@ export function UploadPage() {
   useEffect(() => {
     if (stage !== 'processing' || !files.video) return undefined;
     const timeout = setTimeout(() => {
-      const selectedClass = classes.find((item) => item.id === selectedClassId);
-      const observation = createUploadedObservation(files.video, selectedClassId, {
+      const selectedClass = assignedClass;
+      const observation = createUploadedObservation(files.video, selectedClass?.id || selectedClassId, {
         slides: files.slides,
         lessonPlan: files.lessonPlan,
         audio: files.audio,
@@ -102,7 +120,7 @@ export function UploadPage() {
       navigate(`/observation/${observation.id}`, { state: { observation } });
     }, 1100);
     return () => clearTimeout(timeout);
-  }, [stage, files.video, selectedClassId, classes, navigate]);
+  }, [stage, files.video, assignedClass, selectedClassId, navigate]);
 
   const stageLabels = { select: '01', uploading: '02', processing: '03' };
   const stageTitles = { select: t('chooseRecording'), uploading: t('uploadingVideo'), processing: t('preparingAnalysis') };
@@ -140,25 +158,24 @@ export function UploadPage() {
           </div>
           <div className="upload-options">
             <div className="upload-class-select-wrap">
-              <label className="field-label" htmlFor="upload-class">{t('assignClass')}</label>
-              {classes.length ? (
-                <select
-                  id="upload-class"
-                  className="input"
-                  value={selectedClassId}
-                  onChange={(event) => setSelectedClassId(event.target.value)}
-                >
-                  {classes.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name} {item.classCode ? `(${item.classCode})` : ''} · {item.subject} {item.semester ? `[${item.semester}]` : ''}
-                    </option>
-                  ))}
-                </select>
+              <label className="field-label">{t('assignedClass')}</label>
+              {assignedClass ? (
+                <div className="assigned-class-box">
+                  <span className={`class-color-dot ${assignedClass.accent || 'sage'}`} />
+                  <div className="assigned-class-box-info">
+                    <strong>{assignedClass.name}</strong>
+                    <small>
+                      {assignedClass.classCode ? `${assignedClass.classCode} · ` : ''}
+                      {assignedClass.subject}
+                      {assignedClass.semester ? ` [${assignedClass.semester}]` : ''}
+                    </small>
+                  </div>
+                </div>
               ) : loadingClasses ? (
-                <div className="input" style={{ opacity: 0.6 }}>Loading classes...</div>
+                <div className="input" style={{ opacity: 0.6 }}>Loading class...</div>
               ) : (
                 <div className="upload-classes-empty">
-                  <p>{t('noClassesFound')} <Link to="/classes">{t('manageClasses')}</Link></p>
+                  <p>{t('noClassesFound')} <Link to="/dashboard">{t('workspace')}</Link></p>
                 </div>
               )}
             </div>
