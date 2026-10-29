@@ -5,6 +5,7 @@ import {
   createClass,
   createSemester,
   deleteClass,
+  deleteSemester,
   getClasses,
   getSemesters,
   getDashboard,
@@ -25,6 +26,7 @@ router.put('/classes/:id', asyncHandler(updateClass));
 router.delete('/classes/:id', asyncHandler(deleteClass));
 router.get('/semesters', asyncHandler(getSemesters));
 router.post('/semesters', asyncHandler(createSemester));
+router.delete('/semesters/:id', asyncHandler(deleteSemester));
 router.post('/videos/upload', uploadVideo, asyncHandler(uploadObservation));
 router.post('/videos', uploadVideo, asyncHandler(uploadObservation));
 router.get('/videos/:videoId/status', asyncHandler(getVideoStatus));

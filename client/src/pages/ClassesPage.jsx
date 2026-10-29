@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft, BookOpen, Check, LoaderCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
+import { DeleteClassModal } from '../components/DeleteClassModal.jsx';
+import { DeleteSemesterModal } from '../components/DeleteSemesterModal.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
 import api from '../lib/api.js';
 
@@ -20,6 +22,12 @@ export function ClassesPage() {
   const [semester, setSemester] = useState('');
   const [newSemester, setNewSemester] = useState('');
   const [state, setState] = useState({ busy: false, message: '', error: '' });
+  const [classToDelete, setClassToDelete] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [semesterToDelete, setSemesterToDelete] = useState(null);
+  const [deleteSemesterBusy, setDeleteSemesterBusy] = useState(false);
+  const [deleteSemesterError, setDeleteSemesterError] = useState('');
 
   const updateField = (event) => setForm({ ...form, [event.target.name]: event.target.value });
 
@@ -130,10 +138,14 @@ export function ClassesPage() {
     }
   };
 
-  const handleDeleteClass = async (item) => {
-    const confirmed = window.confirm(t('confirmDeleteClass'));
-    if (!confirmed) return;
-    setState({ busy: true, message: '', error: '' });
+  const handleRequestDelete = (item) => {
+    setDeleteError('');
+    setClassToDelete(item);
+  };
+
+  const handleConfirmDelete = async (item) => {
+    setDeleteBusy(true);
+    setDeleteError('');
     try {
       await api(`/api/classes/${item.id}`, { method: 'DELETE' });
       setClasses((items) => items.filter((cls) => cls.id !== item.id));
@@ -141,13 +153,47 @@ export function ClassesPage() {
         setEditingId(null);
         setForm(initialForm);
       }
+      setClassToDelete(null);
       setState({ busy: false, message: t('classDeleted'), error: '' });
     } catch (error) {
-      setState({ busy: false, message: '', error: error.message });
+      setDeleteError(error.message || 'Failed to delete class.');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  const handleRequestDeleteSemester = (semObj) => {
+    if (!semObj) return;
+    setDeleteSemesterError('');
+    setSemesterToDelete(semObj);
+  };
+
+  const handleConfirmDeleteSemester = async (semObj) => {
+    setDeleteSemesterBusy(true);
+    setDeleteSemesterError('');
+    try {
+      await api(`/api/semesters/${semObj.id || semObj.code}`, { method: 'DELETE' });
+      setSemesters((prev) => {
+        const next = prev.filter((s) => s.id !== semObj.id && s.code !== semObj.code);
+        if (semester === semObj.code) {
+          setSemester(next[0]?.code || '');
+        }
+        return next;
+      });
+      if (semester === semObj.code) {
+        setClasses([]);
+      }
+      setSemesterToDelete(null);
+      setState({ busy: false, message: t('semesterDeleted'), error: '' });
+    } catch (error) {
+      setDeleteSemesterError(error.message || 'Failed to delete semester.');
+    } finally {
+      setDeleteSemesterBusy(false);
     }
   };
 
   const editingItem = classes.find((c) => c.id === editingId);
+  const currentSemesterObj = semesters.find((s) => s.code === semester) || (semester ? { code: semester } : null);
 
   return <Layout>
     <div className="page-wrap classes-page">
@@ -171,22 +217,35 @@ export function ClassesPage() {
               <p>{editingId ? `${t('editingClass')}: ${editingItem?.name || ''}` : t('addClassCopy')}</p>
             </div>
           </div>
-          <label className="field semester-field">
+          <div className="field semester-field">
             <span className="field-label">{t('academicSemester')}</span>
-            <select
-              className="input"
-              value={semester}
-              onChange={(event) => {
-                setSemester(event.target.value);
-                if (editingId) handleCancelEdit();
-              }}
-              disabled={!semesters.length}
-            >
-              <option value="" disabled>{t('selectSemester')}</option>
-              {semesters.map((item) => <option key={item.id} value={item.code}>{item.code}</option>)}
-            </select>
+            <div className="semester-select-row">
+              <select
+                className="input"
+                value={semester}
+                onChange={(event) => {
+                  setSemester(event.target.value);
+                  if (editingId) handleCancelEdit();
+                }}
+                disabled={!semesters.length}
+              >
+                <option value="" disabled>{t('selectSemester')}</option>
+                {semesters.map((item) => <option key={item.id} value={item.code}>{item.code}</option>)}
+              </select>
+              {currentSemesterObj && (
+                <button
+                  type="button"
+                  className="class-action-btn delete semester-delete-btn"
+                  onClick={() => handleRequestDeleteSemester(currentSemesterObj)}
+                  title={t('deleteSemester')}
+                  aria-label={t('deleteSemester')}
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
+            </div>
             <span className="field-hint">{t('semesterHint')}</span>
-          </label>
+          </div>
           <form className="semester-create-form" onSubmit={addSemester}>
             <label className="field">
               <span className="field-label">{t('createSemester')}</span>
@@ -294,7 +353,7 @@ export function ClassesPage() {
                     <button
                       type="button"
                       className="class-action-btn delete"
-                      onClick={() => handleDeleteClass(item)}
+                      onClick={() => handleRequestDelete(item)}
                       title={t('deleteClass')}
                       aria-label={t('deleteClass')}
                     >
@@ -313,5 +372,27 @@ export function ClassesPage() {
         </section>
       </div>
     </div>
+    <DeleteClassModal
+      isOpen={Boolean(classToDelete)}
+      classItem={classToDelete}
+      onClose={() => {
+        if (!deleteBusy) setClassToDelete(null);
+      }}
+      onConfirm={handleConfirmDelete}
+      isBusy={deleteBusy}
+      error={deleteError}
+    />
+    <DeleteSemesterModal
+      isOpen={Boolean(semesterToDelete)}
+      semesterItem={semesterToDelete}
+      classesCount={semesterToDelete ? (semesterToDelete.code === semester ? classes.length : 0) : 0}
+      classesList={semesterToDelete && semesterToDelete.code === semester ? classes : []}
+      onClose={() => {
+        if (!deleteSemesterBusy) setSemesterToDelete(null);
+      }}
+      onConfirm={handleConfirmDeleteSemester}
+      isBusy={deleteSemesterBusy}
+      error={deleteSemesterError}
+    />
   </Layout>;
 }

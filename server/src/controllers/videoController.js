@@ -221,6 +221,67 @@ export async function deleteClass(request, response) {
   response.json({ message: 'Class deleted successfully.', id: classId });
 }
 
+export async function deleteSemester(request, response) {
+  const teacher = await teacherForUser(request.user.id);
+  const identifier = String(request.params.id || request.params.code || '').trim();
+  if (!identifier) {
+    return response.status(400).json({ message: 'Semester ID or code is required.' });
+  }
+
+  const isObjectId = /^[0-9a-fA-F]{24}$/.test(identifier);
+  const semester = await prisma.semester.findFirst({
+    where: {
+      teacherId: teacher.id,
+      OR: [
+        ...(isObjectId ? [{ id: identifier }] : []),
+        { code: identifier }
+      ]
+    }
+  });
+
+  if (!semester) {
+    return response.status(404).json({ message: 'Semester not found.' });
+  }
+
+  const classes = await prisma.class.findMany({
+    where: {
+      teacherId: teacher.id,
+      OR: [
+        { semesterId: semester.id },
+        { semester: semester.code }
+      ]
+    },
+    select: { id: true }
+  });
+
+  const classIds = classes.map((c) => c.id);
+
+  if (classIds.length > 0) {
+    const videos = await prisma.video.findMany({
+      where: { classId: { in: classIds } },
+      select: { id: true, fileUrl: true }
+    });
+
+    for (const v of videos) {
+      if (v.fileUrl && typeof v.fileUrl === 'string') {
+        const objectKey = v.fileUrl.startsWith('/api/videos/media/')
+          ? decodeURIComponent(v.fileUrl.split('/').pop())
+          : v.fileUrl;
+        await removeObject(objectKey).catch(() => {});
+      }
+      await prisma.feedback.deleteMany({ where: { videoId: v.id } }).catch(() => {});
+      await prisma.analytics.deleteMany({ where: { videoId: v.id } }).catch(() => {});
+    }
+
+    await prisma.video.deleteMany({ where: { classId: { in: classIds } } }).catch(() => {});
+    await prisma.class.deleteMany({ where: { id: { in: classIds } } }).catch(() => {});
+  }
+
+  await prisma.semester.delete({ where: { id: semester.id } });
+
+  response.json({ message: 'Semester deleted successfully.', id: semester.id, code: semester.code });
+}
+
 export async function uploadObservation(request, response) {
   if (!request.file) return response.status(400).json({ message: 'An MP4 video file is required.' });
   const teacher = await teacherForUser(request.user.id);

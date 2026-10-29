@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, BookOpen, Check, Clock3, Film, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
+import { DeleteClassModal } from '../components/DeleteClassModal.jsx';
+import { DeleteSemesterModal } from '../components/DeleteSemesterModal.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
 import api from '../lib/api.js';
@@ -49,6 +51,12 @@ export function DashboardPage() {
   const [semesters, setSemesters] = useState([]);
   const [selectedSemester, setSelectedSemester] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [classToDelete, setClassToDelete] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [semesterToDelete, setSemesterToDelete] = useState(null);
+  const [deleteSemesterBusy, setDeleteSemesterBusy] = useState(false);
+  const [deleteSemesterError, setDeleteSemesterError] = useState('');
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -127,22 +135,58 @@ export function DashboardPage() {
     }
   };
 
-  const handleDeleteActiveClass = async (classToDelete) => {
-    if (!classToDelete) return;
-    const confirmed = window.confirm(t('confirmDeleteClass'));
-    if (!confirmed) return;
+  const handleRequestDelete = (item) => {
+    if (!item) return;
+    setDeleteError('');
+    setClassToDelete(item);
+  };
+
+  const handleConfirmDelete = async (item) => {
+    setDeleteBusy(true);
+    setDeleteError('');
     try {
-      await api(`/api/classes/${classToDelete.id}`, { method: 'DELETE' });
+      await api(`/api/classes/${item.id}`, { method: 'DELETE' });
       setClasses((prev) => {
-        const next = prev.filter((item) => item.id !== classToDelete.id);
-        const nextFiltered = selectedSemester ? next.filter((item) => item.semester === selectedSemester) : next;
+        const next = prev.filter((cls) => cls.id !== item.id);
+        const nextFiltered = selectedSemester ? next.filter((cls) => cls.semester === selectedSemester) : next;
         setActiveClassId(nextFiltered[0]?.id || (next[0]?.id || ''));
         return next;
       });
+      setClassToDelete(null);
     } catch (error) {
-      alert(error.message || 'Failed to delete class.');
+      setDeleteError(error.message || 'Failed to delete class.');
+    } finally {
+      setDeleteBusy(false);
     }
   };
+
+  const handleRequestDeleteSemester = (semObj) => {
+    if (!semObj) return;
+    setDeleteSemesterError('');
+    setSemesterToDelete(semObj);
+  };
+
+  const handleConfirmDeleteSemester = async (semObj) => {
+    setDeleteSemesterBusy(true);
+    setDeleteSemesterError('');
+    try {
+      await api(`/api/semesters/${semObj.id || semObj.code}`, { method: 'DELETE' });
+      setSemesters((prev) => prev.filter((s) => s.id !== semObj.id && s.code !== semObj.code));
+      setClasses((prev) => prev.filter((c) => c.semester !== semObj.code && c.semesterId !== semObj.id));
+      if (selectedSemester === semObj.code) {
+        setSelectedSemester('');
+      }
+      setSemesterToDelete(null);
+    } catch (error) {
+      setDeleteSemesterError(error.message || 'Failed to delete semester.');
+    } finally {
+      setDeleteSemesterBusy(false);
+    }
+  };
+
+  const semesterClasses = semesterToDelete
+    ? classes.filter((c) => c.semester === semesterToDelete.code || c.semesterId === semesterToDelete.id)
+    : [];
 
   const activeClass = filteredClasses.find((item) => item.id === activeClassId) || filteredClasses[0] || null;
   const videos = useMemo(() => {
@@ -213,19 +257,36 @@ export function DashboardPage() {
                         <span>{t('allSemesters')}</span>
                         {!selectedSemester && <Check size={14} />}
                       </button>
-                      {semesterOptions.map((sem) => (
-                        <button
-                          key={sem}
-                          type="button"
-                          role="option"
-                          aria-selected={selectedSemester === sem}
-                          className={`semester-menu-item${selectedSemester === sem ? ' is-selected' : ''}`}
-                          onClick={() => handleSelectSemester(sem)}
-                        >
-                          <span>{sem}</span>
-                          {selectedSemester === sem && <Check size={14} />}
-                        </button>
-                      ))}
+                      {semesterOptions.map((sem) => {
+                        const semObj = semesters.find((s) => s.code === sem) || { code: sem, id: sem };
+                        return (
+                          <div key={sem} className="semester-menu-row">
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected={selectedSemester === sem}
+                              className={`semester-menu-item${selectedSemester === sem ? ' is-selected' : ''}`}
+                              onClick={() => handleSelectSemester(sem)}
+                            >
+                              <span>{sem}</span>
+                              {selectedSemester === sem && <Check size={14} />}
+                            </button>
+                            <button
+                              type="button"
+                              className="semester-menu-delete-btn"
+                              title={t('deleteSemester')}
+                              aria-label={`${t('deleteSemester')} ${sem}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIsDropdownOpen(false);
+                                handleRequestDeleteSemester(semObj);
+                              }}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -275,7 +336,7 @@ export function DashboardPage() {
                         <button
                           type="button"
                           className="class-action-btn delete"
-                          onClick={() => handleDeleteActiveClass(activeClass)}
+                          onClick={() => handleRequestDelete(activeClass)}
                           title={t('deleteClass')}
                           aria-label={t('deleteClass')}
                         >
@@ -331,6 +392,28 @@ export function DashboardPage() {
           </section>
         </div>
       </div>
+      <DeleteClassModal
+        isOpen={Boolean(classToDelete)}
+        classItem={classToDelete}
+        onClose={() => {
+          if (!deleteBusy) setClassToDelete(null);
+        }}
+        onConfirm={handleConfirmDelete}
+        isBusy={deleteBusy}
+        error={deleteError}
+      />
+      <DeleteSemesterModal
+        isOpen={Boolean(semesterToDelete)}
+        semesterItem={semesterToDelete}
+        classesCount={semesterClasses.length}
+        classesList={semesterClasses}
+        onClose={() => {
+          if (!deleteSemesterBusy) setSemesterToDelete(null);
+        }}
+        onConfirm={handleConfirmDeleteSemester}
+        isBusy={deleteSemesterBusy}
+        error={deleteSemesterError}
+      />
     </Layout>
   );
 }
