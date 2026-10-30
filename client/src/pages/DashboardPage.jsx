@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, BookOpen, Check, Clock3, Film, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Check, Clock3, Film, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
 import { DeleteClassModal } from '../components/DeleteClassModal.jsx';
@@ -47,7 +47,7 @@ export function DashboardPage() {
   const [classes, setClasses] = useState([]);
   const [activeClassId, setActiveClassId] = useState('');
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState('');
+  const [classSearch, setClassSearch] = useState('');
   const [semesters, setSemesters] = useState([]);
   const [selectedSemester, setSelectedSemester] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -122,9 +122,19 @@ export function DashboardPage() {
   }, [semesters, classes]);
 
   const filteredClasses = useMemo(() => {
-    if (!selectedSemester) return classes;
-    return classes.filter((item) => item.semester === selectedSemester);
-  }, [classes, selectedSemester]);
+
+    let list = selectedSemester ? classes.filter((item) => item.semester === selectedSemester) : classes;
+    if (classSearch.trim()) {
+      const q = classSearch.trim().toLowerCase();
+      list = list.filter((item) =>
+        (item.name && item.name.toLowerCase().includes(q)) ||
+        (item.classCode && item.classCode.toLowerCase().includes(q)) ||
+        (item.code && item.code.toLowerCase().includes(q)) ||
+        (item.subject && item.subject.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [classes, selectedSemester, classSearch]);
 
   const handleSelectSemester = (sem) => {
     setSelectedSemester(sem);
@@ -191,8 +201,8 @@ export function DashboardPage() {
   const activeClass = filteredClasses.find((item) => item.id === activeClassId) || filteredClasses[0] || null;
   const videos = useMemo(() => {
     if (!activeClass) return [];
-    return getClassVideos(activeClass.id).filter((video) => video.title.toLowerCase().includes(query.toLowerCase()));
-  }, [activeClass, query]);
+    return getClassVideos(activeClass.id);
+  }, [activeClass]);
   const firstName = user?.name?.split(' ')[0] || mockTeacher.name.split(' ')[0];
 
   return (
@@ -292,6 +302,28 @@ export function DashboardPage() {
                 </div>
               </div>
             </div>
+            <div className="class-search-box">
+              <Search size={14} className="class-search-icon" aria-hidden="true" />
+              <input
+                type="text"
+                className="class-search-input"
+                placeholder={t('searchClasses')}
+                value={classSearch}
+                onChange={(event) => setClassSearch(event.target.value)}
+                aria-label={t('searchClasses')}
+              />
+              {classSearch && (
+                <button
+                  type="button"
+                  className="class-search-clear"
+                  onClick={() => setClassSearch('')}
+                  title={t('clearSearch')}
+                  aria-label={t('clearSearch')}
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
             <div className="class-list">
               {filteredClasses.length ? (
                 filteredClasses.map((item) => (
@@ -310,7 +342,7 @@ export function DashboardPage() {
                 ))
               ) : (
                 <div className="empty-class-list">
-                  {classes.length ? t('noClassesInSemester') : t('noClassesFound')}
+                  {classSearch.trim() ? t('noMatchingClasses') : (classes.length ? t('noClassesInSemester') : t('noClassesFound'))}
                 </div>
               )}
             </div>
@@ -346,14 +378,6 @@ export function DashboardPage() {
                     </div>
                     <p>{activeClass.classCode ? `${activeClass.classCode} · ${activeClass.subject}` : activeClass.subject}</p>
                   </div>
-                  <div className="library-tools">
-                    <label className="search-field">
-                      <Search size={15} />
-                      <span className="sr-only">{t('searchObservations')}</span>
-                      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchObservations')} />
-                    </label>
-                    <span className="video-count">{videos.length} {videos.length === 1 ? t('video') : t('videos')}</span>
-                  </div>
                 </div>
                 {videos.length ? (
                   <div className="observation-grid">
@@ -362,8 +386,8 @@ export function DashboardPage() {
                 ) : (
                   <div className="empty-state">
                     <Film size={23} />
-                    <h3>{t('noMatchingObservations')}</h3>
-                    <p>{t('tryAnotherSearch')}</p>
+                    <h3>{t('noObservationsYet') || t('noMatchingObservations')}</h3>
+                    <p>{t('uploadRecordingPrompt') || t('tryAnotherSearch')}</p>
                     <Link
                       to={`/upload?classId=${activeClass.id}`}
                       state={{ classId: activeClass.id, classItem: activeClass }}
@@ -378,15 +402,26 @@ export function DashboardPage() {
             ) : (
               <div className="empty-state">
                 <Film size={23} />
-                <h3>{t('noClassesFound')}</h3>
-                <p>{t('classesAppear')}</p>
-                <Link
-                  to="/classes"
-                  className="primary-button"
-                  style={{ marginTop: '16px', minHeight: '36px', height: '36px', padding: '0 15px', fontSize: '0.74rem' }}
-                >
-                  <Plus size={15} /> {t('addClass')}
-                </Link>
+                <h3>{classSearch.trim() ? t('noMatchingClasses') : t('noClassesFound')}</h3>
+                <p>{classSearch.trim() ? t('tryAnotherClassSearch') : t('classesAppear')}</p>
+                {classSearch.trim() ? (
+                  <button
+                    type="button"
+                    className="outline-button"
+                    style={{ marginTop: '16px', minHeight: '36px', height: '36px', padding: '0 15px', fontSize: '0.74rem' }}
+                    onClick={() => setClassSearch('')}
+                  >
+                    {t('clearSearch')}
+                  </button>
+                ) : (
+                  <Link
+                    to="/classes"
+                    className="primary-button"
+                    style={{ marginTop: '16px', minHeight: '36px', height: '36px', padding: '0 15px', fontSize: '0.74rem' }}
+                  >
+                    <Plus size={15} /> {t('addClass')}
+                  </Link>
+                )}
               </div>
             )}
           </section>
