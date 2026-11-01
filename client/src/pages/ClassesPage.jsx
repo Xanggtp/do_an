@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, BookOpen, Check, LoaderCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { ArrowLeft, BookOpen, Calendar, Check, LoaderCircle, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
 import { DeleteClassModal } from '../components/DeleteClassModal.jsx';
@@ -8,6 +8,7 @@ import { usePreferences } from '../context/PreferencesContext.jsx';
 import api from '../lib/api.js';
 
 const initialForm = { name: '', classCode: '', subject: '' };
+const ALL_SEMESTERS = '__all__';
 
 export function ClassesPage() {
   const { t } = usePreferences();
@@ -19,7 +20,8 @@ export function ClassesPage() {
   const [editingId, setEditingId] = useState(null);
   const [classes, setClasses] = useState([]);
   const [semesters, setSemesters] = useState([]);
-  const [semester, setSemester] = useState('');
+  const [classSemester, setClassSemester] = useState('');
+  const [listSemester, setListSemester] = useState('');
   const [newSemester, setNewSemester] = useState('');
   const [state, setState] = useState({ busy: false, message: '', error: '' });
   const [classToDelete, setClassToDelete] = useState(null);
@@ -40,7 +42,10 @@ export function ClassesPage() {
         const preferred = (paramSemester && data.semesters.some((item) => item.code === paramSemester))
           ? paramSemester
           : (data.semesters[0]?.code || '');
-        setSemester((current) => current && data.semesters.some((item) => item.code === current) ? current : preferred);
+        setClassSemester((current) => current && data.semesters.some((item) => item.code === current) ? current : preferred);
+        setListSemester((current) => current && (current === ALL_SEMESTERS || data.semesters.some((item) => item.code === current))
+          ? current
+          : preferred);
       })
       .catch((error) => {
         if (active) setState({ busy: false, message: '', error: error.message });
@@ -49,13 +54,14 @@ export function ClassesPage() {
   }, [paramSemester]);
 
   useEffect(() => {
-    if (!semester) {
+    if (!listSemester) {
       setClasses([]);
       return undefined;
     }
     let active = true;
     setState((current) => ({ ...current, busy: true, error: '' }));
-    api(`/api/classes?semester=${encodeURIComponent(semester)}`)
+    const query = listSemester === ALL_SEMESTERS ? '' : `?semester=${encodeURIComponent(listSemester)}`;
+    api(`/api/classes${query}`)
       .then((data) => {
         if (active) {
           setClasses(data.classes);
@@ -79,7 +85,7 @@ export function ClassesPage() {
         if (active) setState((current) => ({ ...current, busy: false }));
       });
     return () => { active = false; };
-  }, [semester, paramEditId]);
+  }, [listSemester, paramEditId]);
 
   const addSemester = async (event) => {
     event.preventDefault();
@@ -87,7 +93,8 @@ export function ClassesPage() {
     try {
       const data = await api('/api/semesters', { method: 'POST', body: JSON.stringify({ code: newSemester.trim() }) });
       setSemesters((items) => [...items, data.semester]);
-      setSemester(data.semester.code);
+      setClassSemester(data.semester.code);
+      setListSemester(data.semester.code);
       setNewSemester('');
       setState({ busy: false, message: t('semesterCreated'), error: '' });
     } catch (error) {
@@ -97,6 +104,7 @@ export function ClassesPage() {
 
   const handleStartEdit = (item) => {
     setEditingId(item.id);
+    setClassSemester(item.semester || '');
     setForm({
       name: item.name,
       classCode: item.classCode || '',
@@ -118,7 +126,7 @@ export function ClassesPage() {
       if (editingId) {
         const data = await api(`/api/classes/${editingId}`, {
           method: 'PUT',
-          body: JSON.stringify({ ...form, semester })
+          body: JSON.stringify({ ...form, semester: classSemester })
         });
         setClasses((items) => items.map((cls) => cls.id === editingId ? data.class : cls));
         setEditingId(null);
@@ -127,7 +135,7 @@ export function ClassesPage() {
       } else {
         const data = await api('/api/classes', {
           method: 'POST',
-          body: JSON.stringify({ ...form, semester })
+          body: JSON.stringify({ ...form, semester: classSemester })
         });
         setClasses((items) => [...items, data.class]);
         setForm(initialForm);
@@ -175,12 +183,13 @@ export function ClassesPage() {
       await api(`/api/semesters/${semObj.id || semObj.code}`, { method: 'DELETE' });
       setSemesters((prev) => {
         const next = prev.filter((s) => s.id !== semObj.id && s.code !== semObj.code);
-        if (semester === semObj.code) {
-          setSemester(next[0]?.code || '');
+        if (classSemester === semObj.code) {
+          setClassSemester(next[0]?.code || '');
         }
+        if (listSemester === semObj.code) setListSemester(next[0]?.code || '');
         return next;
       });
-      if (semester === semObj.code) {
+      if (classSemester === semObj.code) {
         setClasses([]);
       }
       setSemesterToDelete(null);
@@ -193,7 +202,8 @@ export function ClassesPage() {
   };
 
   const editingItem = classes.find((c) => c.id === editingId);
-  const currentSemesterObj = semesters.find((s) => s.code === semester) || (semester ? { code: semester } : null);
+  const currentSemesterObj = semesters.find((s) => s.code === classSemester)
+    || (classSemester ? { code: classSemester } : null);
 
   return <Layout>
     <div className="page-wrap classes-page">
@@ -207,24 +217,53 @@ export function ClassesPage() {
         <div className="classes-orbit"><BookOpen size={29} /></div>
       </header>
       <div className="classes-layout">
-        <section className="classes-form-panel">
+        <section className="classes-form-panel semester-panel">
+          <div className="classes-section-head">
+            <div className="settings-icon">
+              <Calendar size={18} />
+            </div>
+            <div>
+              <p className="eyebrow">01</p>
+              <h2>{t('createSemester')}</h2>
+              <p>{t('semesterHint')}</p>
+            </div>
+          </div>
+          <form className="semester-create-form" onSubmit={addSemester}>
+            <label className="field">
+              <span className="field-label">{t('academicSemester')}</span>
+              <input
+                className="input"
+                value={newSemester}
+                onChange={(event) => setNewSemester(event.target.value)}
+                placeholder={t('semesterPlaceholder')}
+                pattern="\d{4}\.[123]"
+                required
+              />
+            </label>
+            <button className="outline-button" type="submit" disabled={state.busy}>
+              <Plus size={15} /> {t('createSemester')}
+            </button>
+          </form>
+        </section>
+        <section className="classes-form-panel class-form-panel">
           <div className="classes-section-head">
             <div className="settings-icon">
               {editingId ? <Pencil size={18} /> : <Plus size={18} />}
             </div>
             <div>
+              <p className="eyebrow">02</p>
               <h2>{editingId ? t('editClass') : t('addClass')}</h2>
               <p>{editingId ? `${t('editingClass')}: ${editingItem?.name || ''}` : t('addClassCopy')}</p>
             </div>
           </div>
-          <div className="field semester-field">
+          <div className="selected-semester-card">
             <span className="field-label">{t('academicSemester')}</span>
             <div className="semester-select-row">
               <select
                 className="input"
-                value={semester}
+                value={classSemester}
                 onChange={(event) => {
-                  setSemester(event.target.value);
+                  setClassSemester(event.target.value);
                   if (editingId) handleCancelEdit();
                 }}
                 disabled={!semesters.length}
@@ -244,24 +283,7 @@ export function ClassesPage() {
                 </button>
               )}
             </div>
-            <span className="field-hint">{t('semesterHint')}</span>
           </div>
-          <form className="semester-create-form" onSubmit={addSemester}>
-            <label className="field">
-              <span className="field-label">{t('createSemester')}</span>
-              <input
-                className="input"
-                value={newSemester}
-                onChange={(event) => setNewSemester(event.target.value)}
-                placeholder={t('semesterPlaceholder')}
-                pattern="\d{4}\.[123]"
-                required
-              />
-            </label>
-            <button className="outline-button" type="submit" disabled={state.busy}>
-              <Plus size={15} /> {t('createSemester')}
-            </button>
-          </form>
           <form className="form-stack" onSubmit={saveClass}>
             <label className="field">
               <span className="field-label">{t('classNameLabel')}</span>
@@ -299,7 +321,7 @@ export function ClassesPage() {
             {state.error && <div className="form-alert">{state.error}</div>}
             {state.message && <div className="success-message"><Check size={15} /> {state.message}</div>}
             <div className="class-form-actions">
-              <button className="primary-button compact-button" disabled={state.busy || !semester}>
+              <button className="primary-button compact-button" disabled={state.busy || !classSemester}>
                 {state.busy ? (
                   <LoaderCircle className="spin" size={18} />
                 ) : editingId ? (
@@ -323,10 +345,29 @@ export function ClassesPage() {
         </section>
         <section className="classes-list-panel">
           <div className="classes-section-head">
-            <div>
-              <p className="eyebrow">{t('yourClasses')}{semester ? ` · ${semester}` : ''}</p>
-              <h2>{classes.length ? `${classes.length} ${t('added')}` : t('startingPoint')}</h2>
+            <div className="settings-icon">
+              <BookOpen size={18} />
             </div>
+            <div>
+              <p className="eyebrow">03</p>
+              <h2>{t('yourClasses')}</h2>
+              <p>{listSemester === ALL_SEMESTERS ? t('allSemesters') : listSemester}</p>
+            </div>
+          </div>
+          <label className="field classes-filter">
+            <span className="field-label">{t('academicSemester')}</span>
+            <select
+              className="input"
+              value={listSemester}
+              onChange={(event) => setListSemester(event.target.value)}
+              disabled={!semesters.length}
+            >
+              <option value={ALL_SEMESTERS}>{t('allSemesters')}</option>
+              {semesters.map((item) => <option key={item.id} value={item.code}>{item.code}</option>)}
+            </select>
+          </label>
+          <div className="classes-list-summary">
+            <h3>{classes.length ? `${classes.length} ${t('added')}` : t('startingPoint')}</h3>
           </div>
           {classes.length ? (
             <div className="created-class-list">
@@ -338,7 +379,10 @@ export function ClassesPage() {
                   <span className="class-color-dot sage" />
                   <div className="created-class-info">
                     <strong>{item.name}</strong>
-                    <p>{item.classCode ? `${item.classCode} · ${item.subject}` : item.subject}</p>
+                    <p>
+                      {item.classCode ? `${item.classCode} · ${item.subject}` : item.subject}
+                      {item.semester ? ` · ${item.semester}` : ''}
+                    </p>
                   </div>
                   <div className="created-class-actions">
                     <button
@@ -385,8 +429,8 @@ export function ClassesPage() {
     <DeleteSemesterModal
       isOpen={Boolean(semesterToDelete)}
       semesterItem={semesterToDelete}
-      classesCount={semesterToDelete ? (semesterToDelete.code === semester ? classes.length : 0) : 0}
-      classesList={semesterToDelete && semesterToDelete.code === semester ? classes : []}
+      classesCount={semesterToDelete ? (semesterToDelete.code === classSemester ? classes.length : 0) : 0}
+      classesList={semesterToDelete && semesterToDelete.code === classSemester ? classes : []}
       onClose={() => {
         if (!deleteSemesterBusy) setSemesterToDelete(null);
       }}
