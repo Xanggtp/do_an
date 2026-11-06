@@ -876,3 +876,255 @@ html[data-theme='dark'] .semester-menu-delete-btn:hover {
   background: #3d231f;
   color: #ff9d8f;
 }
+
+
+/* Upload Page: Check & Review Stages */
+.check-pipeline-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 4px;
+}
+.check-pipeline-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+.check-step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  background: #f3f5ee;
+  border: 1px solid #dfe5da;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+.check-step-item.is-done {
+  background: #f0f7f1;
+  border-color: #bcd4c1;
+}
+.check-step-item.is-active {
+  background: #fbf8f0;
+  border-color: #ebd7a3;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+.check-step-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #718079;
+  background: #e2e8df;
+}
+.check-step-item.is-done .check-step-icon {
+  color: #2b7346;
+  background: #d4ebd9;
+}
+.check-step-item.is-active .check-step-icon {
+  color: #c27d1a;
+  background: #fcedcb;
+}
+.check-step-content {
+  flex: 1;
+  min-width: 0;
+}
+.check-step-content strong {
+  display: block;
+  font-size: 0.82rem;
+  color: #2e3b36;
+  margin-bottom: 2px;
+}
+.check-step-content p {
+  margin: 0;
+  font-size: 0.7rem;
+  color: #6d7b74;
+  line-height: 1.4;
+}
+
+/* Review Stage Card */
+.review-panel-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.review-header-badge-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.review-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.review-badge.badge-success {
+  color: #1f6b3a;
+  background: #d9f3e1;
+  border: 1px solid #b7e3c3;
+}
+.review-badge.badge-info {
+  color: #3b5349;
+  background: #e5ece6;
+  border: 1px solid #cad7cc;
+}
+.review-badge.badge-recommend {
+  color: #8c531b;
+  background: #fef0db;
+  border: 1px solid #fad7a5;
+}
+
+.quality-scores-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 6px;
+}
+.score-box {
+  padding: 12px 10px;
+  background: #ffffff;
+  border: 1px solid #e2e6dd;
+  border-radius: 6px;
+  text-align: center;
+}
+.score-box-title {
+  display: block;
+  font-size: 0.66rem;
+  color: #7b8882;
+  margin-bottom: 5px;
+  font-weight: 600;
+}
+.score-box-val {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 2px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #2e3b36;
+}
+.score-box-val small {
+  font-size: 0.7rem;
+  color: #9aa7a0;
+}
+.score-stars {
+  display: flex;
+  justify-content: center;
+  gap: 2px;
+  margin-top: 4px;
+  color: #e59a2c;
+}
+
+.content-review-card {
+  padding: 18px;
+  background: #ffffff;
+  border: 1px solid #e0e4da;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.content-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.content-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #556c60;
+}
+.content-field-text {
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: #33403a;
+  margin: 0;
+}
+.content-review-bullets {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: #33403a;
+}
+.content-review-bullets li {
+  margin-bottom: 4px;
+}
+.issues-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f1f8f3;
+  border: 1px solid #c2e2cc;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  color: #266b3f;
+  font-weight: 600;
+}
+.review-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.review-actions-row .primary-button {
+  flex: 1;
+}
+
+/* Dark mode overrides */
+html[data-theme='dark'] .check-step-item {
+  background: #192621;
+  border-color: #2b3d35;
+}
+html[data-theme='dark'] .check-step-item.is-done {
+  background: #162a20;
+  border-color: #2a523a;
+}
+html[data-theme='dark'] .check-step-item.is-active {
+  background: #2a271a;
+  border-color: #5a4921;
+}
+html[data-theme='dark'] .check-step-content strong {
+  color: #e4ece7;
+}
+html[data-theme='dark'] .check-step-content p {
+  color: #98a9a0;
+}
+html[data-theme='dark'] .score-box,
+html[data-theme='dark'] .content-review-card {
+  background: #1a2722;
+  border-color: #2e4138;
+}
+html[data-theme='dark'] .score-box-val,
+html[data-theme='dark'] .content-field-text,
+html[data-theme='dark'] .content-review-bullets {
+  color: #dbe4df;
+}
+html[data-theme='dark'] .content-field-label {
+  color: #88b79b;
+}
+html[data-theme='dark'] .issues-box {
+  background: #142a1e;
+  border-color: #235436;
+  color: #81d19d;
+}
+@media (max-width: 680px) {
+  .quality-scores-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
