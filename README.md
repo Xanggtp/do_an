@@ -117,7 +117,13 @@ Starts the Express API at `http://localhost:5000` and Vite frontend at `http://l
 
 ### Real AI analysis with Gemini
 
-Set `GEMINI_API_KEY` (Google AI Studio) and optionally `GEMINI_MODEL` in `.env`, then use `WORKER_MODE=inline` or `queue`.
+**Easiest — per teacher, from the app:** open **Settings → AI analysis (Gemini)**, paste a key from
+[Google AI Studio](https://aistudio.google.com/apikey), pick a model and press **Verify & save**. The key is checked with Google,
+stored AES-256-GCM encrypted (`SETTINGS_ENCRYPTION_KEY`, or derived from `JWT_SECRET`), never returned by the API, and used for
+that teacher's uploads in every `WORKER_MODE` (including `stub`).
+
+**Server-wide fallback:** set `GEMINI_API_KEY` and optionally `GEMINI_MODEL` in `.env`, then use `WORKER_MODE=inline` or `queue`.
+Teachers without their own key then use this one.
 Each segment is uploaded to the Gemini File API, analyzed with a JSON response schema (quality scores, content review,
 transcript, Danielson feedback, COPUS codes, Bloom counts) and deleted from Gemini afterwards.
 
@@ -199,6 +205,9 @@ All classroom routes require the `account_dashboard_token` HttpOnly cookie set a
 | `POST` | `/api/semesters` | Create a semester |
 | `DELETE` | `/api/semesters/:id` | Delete a semester and all its classes |
 | `POST` | `/api/videos/upload` | Upload MP4 (`multipart/form-data`) with `classId` |
+| `GET` | `/api/user/ai-settings` | Gemini settings of the current user (`hasPersonalKey`, `keyHint`, `model`, `activeProvider`) — never the key itself |
+| `PUT` | `/api/user/ai-settings` | Save `{ apiKey?, model? }`; the key is verified with Google before it is stored encrypted |
+| `DELETE` | `/api/user/ai-settings/key` | Remove the saved key |
 | `GET` | `/api/classes/:id/videos` | List the videos of a class (with first-segment summary) |
 | `GET` | `/api/videos/:videoId/status` | Poll `stage` (`UPLOADED` → `VALIDATING` → `SEGMENTING` → `ANALYZING` → `COMPLETED` / `FAILED`), `progress`, media info and segment reviews |
 | `POST` | `/api/videos/:videoId/reprocess` | Run the pipeline again (e.g. after a failure) |

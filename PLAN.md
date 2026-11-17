@@ -200,3 +200,14 @@ Làm trên nhánh mới `feat/e2e-pipeline`, mỗi bước một commit nhỏ đ
 **Chưa làm trong lượt này (đụng file UI của Xanggtp):** #16 hook `useClassActions()` dùng chung, #17 i18n ra file JSON, #18 tách `styles.css`, #20 đổi tên package.
 
 **Sau khi merge:** không cần `prisma db push` cho `tokenVersion` (trường tuỳ chọn, không có index).
+
+---
+
+## 8. Lượt 3 — Nhập Gemini API key trong Cài đặt (17/11/2026)
+
+- [x] Trang **Cài đặt** có mục "Phân tích AI (Gemini)": nhập key (ẩn/hiện), chọn mô hình (2.5 Flash / Flash-Lite / Pro), hướng dẫn lấy key ở Google AI Studio, nút xoá key (bấm 2 lần để xác nhận). Song ngữ Anh/Việt, có dark mode.
+- [x] Key được **kiểm tra với Google** trước khi lưu (gọi lấy thông tin model, không tốn token), lưu **mã hoá AES-256-GCM** (`utils/secretBox.js`), API chỉ trả 4 ký tự cuối.
+- [x] Pipeline dùng key của **chính giáo viên upload video**; không có thì dùng `GEMINI_API_KEY` của server; không có nữa thì dùng AI mô phỏng. Key cá nhân hoạt động cả ở `WORKER_MODE=stub`.
+- [x] Trang Upload hiện nhắc "kết quả đang là mô phỏng — thêm key trong Cài đặt" khi chưa có key.
+- [x] 6 test mới (giả lập API Gemini): xác thực, key sai bị từ chối, key không bao giờ lộ qua API, lưu mã hoá, video được phân tích bằng đúng key + model của người upload, key hỏng → video FAILED với thông báo rõ ràng. Tổng 22/22 test đạt.
+- [ ] Chưa thử với key Gemini thật (cần bạn nhập key trong Cài đặt rồi upload một video ngắn).
