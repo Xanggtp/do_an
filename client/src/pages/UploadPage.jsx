@@ -55,6 +55,11 @@ export function UploadPage() {
   const [progress, setProgress] = useState(0);
   const [videoId, setVideoId] = useState('');
   const [pipeline, setPipeline] = useState(null); // latest /api/videos/:id/status payload
+  const [aiProvider, setAiProvider] = useState(null); // 'user' | 'server' | 'stub' (from Settings)
+
+  useEffect(() => {
+    api('/api/user/ai-settings').then((data) => setAiProvider(data.settings.activeProvider)).catch(() => {});
+  }, []);
   const [error, setError] = useState('');
   const [aiReviewData, setAiReviewData] = useState(null);
 
@@ -611,6 +616,11 @@ export function UploadPage() {
           )}
         </section>
 
+        {aiProvider === 'stub' && (
+          <p className="upload-footnote ai-stub-notice">
+            <Info size={13} /> {t('aiStubNotice')} <Link to="/settings">{t('aiOpenSettings')}</Link>
+          </p>
+        )}
         <p className="upload-footnote">{t('localDemo')}</p>
       </div>
     </Layout>
