@@ -83,28 +83,32 @@ function startProcessing(videoId) {
 
 const semesterPattern = /^\d{4}\.[123]$/;
 
+/**
+ * Older classes only stored the semester as a string. This links them to Semester records.
+ * It runs on every GET /semesters, so it reads once and only writes when something is unlinked.
+ */
 async function syncLegacySemesters(teacher) {
-  const [records, legacyClasses] = await Promise.all([
+  const [records, classes] = await Promise.all([
     prisma.semester.findMany({ where: { teacherId: teacher.id }, orderBy: { createdAt: 'asc' } }),
-    prisma.class.findMany({ where: { teacherId: teacher.id }, select: { semester: true } })
+    prisma.class.findMany({ where: { teacherId: teacher.id }, select: { id: true, semester: true, semesterId: true } })
   ]);
-  const knownCodes = new Set(records.map((item) => item.code));
-  const legacyCodes = [...new Set(legacyClasses.map((item) => item.semester))]
-    .filter((code) => semesterPattern.test(code) && !knownCodes.has(code));
-  if (legacyCodes.length) {
-    await Promise.all(legacyCodes.map((code) => prisma.semester.create({ data: { code, teacherId: teacher.id } }).catch((error) => {
+  const unlinked = classes.filter((item) => !item.semesterId && semesterPattern.test(item.semester));
+  if (!unlinked.length) return records;
+
+  const byCode = new Map(records.map((item) => [item.code, item]));
+  for (const code of new Set(unlinked.map((item) => item.semester))) {
+    if (byCode.has(code)) continue;
+    const created = await prisma.semester.create({ data: { code, teacherId: teacher.id } }).catch((error) => {
       if (error.code !== 'P2002') throw error;
-      return null;
-    })));
-  }
-  const allSemesters = await prisma.semester.findMany({ where: { teacherId: teacher.id }, orderBy: { createdAt: 'asc' } });
-  for (const sem of allSemesters) {
-    await prisma.class.updateMany({
-      where: { teacherId: teacher.id, semester: sem.code, semesterId: null },
-      data: { semesterId: sem.id }
+      return prisma.semester.findFirst({ where: { teacherId: teacher.id, code } });
     });
+    byCode.set(code, created);
   }
-  return allSemesters;
+  for (const [code, semester] of byCode) {
+    const ids = unlinked.filter((item) => item.semester === code).map((item) => item.id);
+    if (ids.length) await prisma.class.updateMany({ where: { id: { in: ids } }, data: { semesterId: semester.id } });
+  }
+  return prisma.semester.findMany({ where: { teacherId: teacher.id }, orderBy: { createdAt: 'asc' } });
 }
 
 export async function getDashboard(request, response) {
