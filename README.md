@@ -241,8 +241,25 @@ Verified with `server/test-segment.mjs` on a **7-minute synthetic 1280×720 H.26
 Run the test yourself:
 
 ```bash
-node server/test-segment.mjs
+npm run test:segment --prefix server
 ```
+
+## Automated API Tests
+
+```bash
+npm test --prefix server
+```
+
+Runs `server/test/*.test.mjs` with the built-in `node:test` runner and Supertest against an **in-memory MongoDB replica set**
+(`mongodb-memory-server`, downloaded once on first run). It never touches Atlas or your `uploads/` folder.
+
+| File | Covers |
+|------|--------|
+| `auth.test.mjs` | register / login / logout, helmet headers, session revocation after password change & reset, recovery without email enumeration, rate limiting |
+| `classes.test.mjs` | semester & class CRUD, validation, duplicate checks, ownership between teachers, legacy semester linking, semester delete |
+| `videos.test.mjs` | full pipeline on a generated 70s video (inline mode, stub AI): upload → segments → observation → range streaming → reprocess → delete; corrupted file → `FAILED`; upload permission & file-type checks |
+
+GitHub Actions (`.github/workflows/ci.yml`) runs these tests, the segmentation test and the client build on every push and pull request.
 
 ---
 
@@ -284,11 +301,17 @@ Each 2-minute segment is evaluated by the review agent and returns:
 ## Security & Production Checklist
 
 - Bcrypt hashing for passwords and security-answer recovery keys.
-- 7-day HttpOnly JWT cookie — never exposed to JavaScript.
+- 7-day HttpOnly JWT cookie — never exposed to JavaScript. Each token carries the user's `tokenVersion`;
+  changing or resetting the password increments it, which signs out every other session.
+- `helmet` security headers on every response.
+- Rate limiting per IP (15-minute window): `AUTH_RATE_LIMIT` (default 20) for login/register/change-password,
+  `RECOVERY_RATE_LIMIT` (default 10) for password recovery. Set `TRUST_PROXY=1` behind a reverse proxy so the real client IP is used.
+- Password recovery returns a security question for any email (a stable decoy for unknown ones), so it cannot be used to discover
+  registered accounts; login and recovery spend the same bcrypt time whether or not the email exists.
 - MP4-only upload filter with MIME type and extension validation.
 - Before deploying to production:
   - Rotate all credentials and JWT secret.
   - Deploy behind HTTPS with a reverse proxy (Nginx / Caddy).
   - Enable Redis persistence and configure a production Redis cluster.
   - Switch to private S3 storage with short-lived presigned URLs.
-  - Add rate limiting, CSRF protection, and input sanitisation middleware.
+  - Review CSRF protection (cookies are `SameSite=Lax`) and input sanitisation.

@@ -1,0 +1,81 @@
+// Shared test harness: in-memory MongoDB replica set + schema push + the Express app.
+// Nothing here touches the team's Atlas database or the real uploads folder.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { MongoMemoryReplSet } from 'mongodb-memory-server';
+import request from 'supertest';
+
+const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+export async function startTestApp(envOverrides = {}) {
+  const replSet = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
+  const uploadDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'classmind-test-'));
+
+  Object.assign(process.env, {
+    NODE_ENV: 'test',
+    DATABASE_URL: replSet.getUri('classmind_test'),
+    JWT_SECRET: 'test-secret-do-not-use',
+    UPLOAD_PROVIDER: 'local',
+    UPLOAD_DIRECTORY: uploadDirectory,
+    WORKER_MODE: 'inline',
+    GEMINI_API_KEY: '',
+    ...envOverrides
+  });
+
+  execFileSync(process.execPath, [path.join(serverRoot, 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], {
+    cwd: serverRoot,
+    env: process.env,
+    stdio: 'pipe'
+  });
+
+  const { default: app } = await import('../src/app.js');
+  const { prisma } = await import('../src/config/prisma.js');
+
+  return {
+    app,
+    prisma,
+    uploadDirectory,
+    agent: () => request.agent(app),
+    async stop() {
+      await prisma.$disconnect();
+      await replSet.stop();
+      fs.rmSync(uploadDirectory, { recursive: true, force: true });
+    }
+  };
+}
+
+let userCounter = 0;
+export async function registerTeacher(agent, overrides = {}) {
+  userCounter += 1;
+  const body = {
+    name: 'Test Teacher',
+    email: `teacher${userCounter}-${Date.now()}@example.com`,
+    password: 'password123',
+    securityQuestion: 'What city were you born in?',
+    securityAnswer: 'Hue',
+    ...overrides
+  };
+  const response = await agent.post('/api/auth/register').send(body);
+  if (response.status !== 201) throw new Error(`register failed: ${response.status} ${JSON.stringify(response.body)}`);
+  return { ...body, user: response.body.user };
+}
+
+export async function createClass(agent, { semester = '2026.1', name = 'Giải tích 1', classCode = 'MATH101', subject = 'Toán' } = {}) {
+  await agent.post('/api/semesters').send({ code: semester });
+  const response = await agent.post('/api/classes').send({ name, classCode, subject, semester });
+  if (response.status !== 201) throw new Error(`create class failed: ${response.status} ${JSON.stringify(response.body)}`);
+  return response.body.class;
+}
+
+export async function waitFor(check, { timeoutMs = 60000, intervalMs = 300 } = {}) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const result = await check();
+    if (result) return result;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error('waitFor timed out');
+}

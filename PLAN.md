@@ -177,3 +177,26 @@ Làm trên nhánh mới `feat/e2e-pipeline`, mỗi bước một commit nhỏ đ
 - [ ] Chưa test: chế độ `queue` (cần Redis/Docker), gọi Gemini thật (cần `GEMINI_API_KEY`), lưu trữ S3, giao diện trên trình duyệt.
 
 **Cần bạn chuẩn bị:** `GEMINI_API_KEY` (Google AI Studio) điền vào file `.env` — chỉ cần khi tới phần gọi AI thật; trước đó dùng stub.
+
+---
+
+## 7. Lượt 2 — Giai đoạn 3: bảo mật + test tự động (17/11/2026, nhánh `quang`)
+
+**Bảo mật (mục 2.3)**
+- [x] #10 Rate limit theo IP (15 phút): login/register/đổi mật khẩu 20 lần, quên mật khẩu 10 lần (`middleware/rateLimit.js`, chỉnh bằng `AUTH_RATE_LIMIT`, `RECOVERY_RATE_LIMIT`, `TRUST_PROXY`).
+- [x] #11 Quên mật khẩu không còn trả 404 với email lạ: trả một câu hỏi "mồi" cố định theo email → không dò được email đã đăng ký. Login/reset tốn thời gian bcrypt như nhau dù email có tồn tại hay không.
+- [x] #12 `User.tokenVersion` (tuỳ chọn, user cũ không cần migrate): đổi / reset mật khẩu → mọi phiên đăng nhập khác bị đăng xuất.
+- [x] #13 `helmet` (cho phép tải media cross-origin để thẻ `<video>` vẫn chạy).
+
+**Dữ liệu (mục 2.2)**
+- [x] #7 `syncLegacySemesters` chỉ đọc 2 truy vấn, chỉ ghi khi thật sự có lớp cũ chưa gắn học kỳ (trước đây mỗi lần `GET /semesters` chạy 1 `updateMany` cho từng học kỳ). Gắn theo `id` nên không phụ thuộc trường `semesterId` là `null` hay chưa có.
+- [ ] #6 Bỏ trường `semester` (chuỗi) kép — **để lại**, vì UI quản lý lớp của Xanggtp đang dùng; cần thống nhất với Xanggtp trước.
+
+**Test & CI (mục 2.5 #19)**
+- [x] `npm test --prefix server`: 16 test API (`node:test` + Supertest + MongoDB replica set trong bộ nhớ, không đụng Atlas): auth, học kỳ/lớp, quyền sở hữu, pipeline video đầy đủ, file hỏng, kiểm tra upload.
+- [x] GitHub Actions `.github/workflows/ci.yml`: test server + test cắt video + build client mỗi lần push / PR.
+- [ ] ESLint/Prettier — chưa thêm (code hiện tại của nhóm sẽ báo rất nhiều lỗi định dạng, nên bàn với nhóm trước).
+
+**Chưa làm trong lượt này (đụng file UI của Xanggtp):** #16 hook `useClassActions()` dùng chung, #17 i18n ra file JSON, #18 tách `styles.css`, #20 đổi tên package.
+
+**Sau khi merge:** không cần `prisma db push` cho `tokenVersion` (trường tuỳ chọn, không có index).
