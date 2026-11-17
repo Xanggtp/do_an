@@ -1,8 +1,29 @@
+import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import { config } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 import { clearAuthCookie, createToken, safeUser, setAuthCookie } from '../utils/auth.js';
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Compared against when the account does not exist, so a wrong email takes as long as a wrong password.
+const dummyHash = bcrypt.hashSync('not-a-real-password', 12);
+
+// Questions offered on the register page (en + vi). Unknown emails get one of these, picked
+// deterministically, so the recovery flow does not reveal which emails are registered.
+const decoyQuestions = [
+  'What was the name of your first school?',
+  'What city were you born in?',
+  'What was your childhood nickname?',
+  'Tên ngôi trường đầu tiên của bạn là gì?',
+  'Bạn sinh ra ở thành phố nào?',
+  'Biệt danh thời thơ ấu của bạn là gì?'
+];
+
+function decoyQuestion(email) {
+  const digest = crypto.createHmac('sha256', config.jwtSecret).update(email).digest();
+  return decoyQuestions[digest.readUInt32BE(0) % decoyQuestions.length];
+}
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -47,7 +68,7 @@ export async function register(request, response) {
       teacher: { create: {} }
     }
   });
-  setAuthCookie(response, createToken(user.id));
+  setAuthCookie(response, createToken(user));
   response.status(201).json({ user: safeUser(user) });
 }
 
@@ -55,10 +76,10 @@ export async function login(request, response) {
   const email = normalizeEmail(request.body.email);
   const password = request.body.password;
   const user = await prisma.user.findUnique({ where: { email } });
-  const valid = user && await bcrypt.compare(String(password || ''), user.passwordHash);
-  if (!valid) return response.status(401).json({ message: 'Email or password is incorrect.' });
+  const valid = await bcrypt.compare(String(password || ''), user?.passwordHash || dummyHash);
+  if (!user || !valid) return response.status(401).json({ message: 'Email or password is incorrect.' });
 
-  setAuthCookie(response, createToken(user.id));
+  setAuthCookie(response, createToken(user));
   response.json({ user: safeUser(user) });
 }
 
@@ -79,17 +100,21 @@ export async function changePassword(request, response) {
   const valid = await bcrypt.compare(String(currentPassword || ''), user.passwordHash);
   if (!valid) return response.status(400).json({ message: 'Current password is incorrect.' });
 
-  user.passwordHash = await bcrypt.hash(newPassword, 12);
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: user.passwordHash } });
-  setAuthCookie(response, createToken(user.id));
+  // Bumping tokenVersion signs out every other session; this one gets a fresh token.
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await bcrypt.hash(newPassword, 12), tokenVersion: (user.tokenVersion ?? 0) + 1 }
+  });
+  setAuthCookie(response, createToken(updated));
   response.json({ message: 'Password updated successfully.' });
 }
 
 export async function getSecurityQuestion(request, response) {
   const email = normalizeEmail(request.body.email);
   const user = await prisma.user.findUnique({ where: { email }, select: { securityQuestion: true } });
-  if (!user) return response.status(404).json({ message: 'No account was found for that email.' });
-  response.json({ securityQuestion: user.securityQuestion });
+  if (!emailPattern.test(email)) return response.status(400).json({ message: 'Enter a valid email address.' });
+  // Same response shape for unknown emails; the reset step then fails with the usual "incorrect answer".
+  response.json({ securityQuestion: user?.securityQuestion || decoyQuestion(email) });
 }
 
 export async function resetPassword(request, response) {
@@ -99,11 +124,13 @@ export async function resetPassword(request, response) {
   if (!validatePassword(newPassword)) return response.status(400).json({ message: 'New password must be between 8 and 72 characters.' });
 
   const user = await prisma.user.findUnique({ where: { email } });
-  const valid = user && await bcrypt.compare(securityAnswer, user.securityAnswerHash);
-  if (!valid) return response.status(400).json({ message: 'Security answer is incorrect.' });
+  const valid = await bcrypt.compare(securityAnswer, user?.securityAnswerHash || dummyHash);
+  if (!user || !valid) return response.status(400).json({ message: 'Security answer is incorrect.' });
 
-  user.passwordHash = await bcrypt.hash(newPassword, 12);
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash: user.passwordHash } });
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await bcrypt.hash(newPassword, 12), tokenVersion: (user.tokenVersion ?? 0) + 1 }
+  });
   clearAuthCookie(response);
   response.json({ message: 'Password reset successfully. You can now log in.' });
 }

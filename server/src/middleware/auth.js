@@ -11,6 +11,10 @@ export async function requireAuth(request, response, next) {
     const payload = jwt.verify(token, config.jwtSecret);
     const user = await prisma.user.findUnique({ where: { id: payload.userId } });
     if (!user) return response.status(401).json({ message: 'Authentication required.' });
+    // Tokens issued before the last password change/reset carry an older version.
+    if ((payload.v ?? 0) !== (user.tokenVersion ?? 0)) {
+      return response.status(401).json({ message: 'Your session has expired. Please log in again.' });
+    }
 
     request.user = user;
     next();

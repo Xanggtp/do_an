@@ -3,8 +3,8 @@ import { config } from '../config/env.js';
 
 export const cookieName = 'account_dashboard_token';
 
-export function createToken(userId) {
-  return jwt.sign({ userId }, config.jwtSecret, { expiresIn: '7d' });
+export function createToken(user) {
+  return jwt.sign({ userId: String(user.id), v: user.tokenVersion ?? 0 }, config.jwtSecret, { expiresIn: '7d' });
 }
 
 export function setAuthCookie(response, token) {

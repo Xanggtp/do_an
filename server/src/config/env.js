@@ -38,7 +38,13 @@ export const config = {
   s3Region: process.env.S3_REGION || 'us-east-1',
   segmentSeconds: Number(process.env.SEGMENT_SECONDS || 120),
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash'
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  // Requests per IP per 15 minutes; set RATE_LIMIT_ENABLED=false to turn limits off (e.g. load tests).
+  rateLimitEnabled: process.env.RATE_LIMIT_ENABLED !== 'false',
+  authRateLimit: Number(process.env.AUTH_RATE_LIMIT || 20),
+  recoveryRateLimit: Number(process.env.RECOVERY_RATE_LIMIT || 10),
+  // Express "trust proxy" setting when deployed behind a reverse proxy (e.g. 1); empty = off.
+  trustProxy: process.env.TRUST_PROXY ? (Number.isNaN(Number(process.env.TRUST_PROXY)) ? process.env.TRUST_PROXY : Number(process.env.TRUST_PROXY)) : false
 };
 
 if (!['local', 's3'].includes(config.uploadProvider)) throw new Error('UPLOAD_PROVIDER must be local or s3.');
