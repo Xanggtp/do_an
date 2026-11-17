@@ -13,7 +13,7 @@ ClassMind is a full-stack automated classroom observation platform designed to h
   - Pedagogical rubric alignment (Danielson Framework 2b, 3b, 3c, 3d).
   - COPUS (Classroom Observation Protocol for Undergraduate STEM) engagement timeline.
   - Bloom's Taxonomy cognitive distribution.
-  - Per-segment quality and chunk continuity evaluation formatted for multi-modal LLM review (GPT-4o Vision).
+  - Per-segment quality and chunk continuity evaluation formatted for multi-modal review by Google Gemini (video + audio per segment).
 - **Upload Page — Check & Review Workflow**: 4-step upload pipeline with live progress, ffprobe integrity check, 120s segmentation status, and an AI quality review card shown before entering the observation studio.
 - **Flexible Storage**: Supports local filesystem storage or private Amazon S3 buckets with signed URLs.
 - **Scalable Background Processing**: Queue-based asynchronous worker model powered by BullMQ and Redis.
@@ -23,7 +23,7 @@ ClassMind is a full-stack automated classroom observation platform designed to h
 ## Lecture Processing Pipeline
 
 ```
-Upload (MP4) → ffprobe Validation → 120s Lossless Segmentation → AI Chunk Review (GPT-4o Vision) → Pedagogical Analytics → Teacher Dashboard
+Upload (MP4) → ffprobe Validation → 120s Lossless Segmentation → AI Chunk Review (Gemini) → Pedagogical Analytics → Teacher Dashboard
 ```
 
 ---
@@ -89,7 +89,7 @@ This installs dependencies for the root, server, and client packages including t
 
 ```bash
 npm run prisma:generate --prefix server
-npm run prisma:migrate --prefix server -- --name init
+npm run prisma:push --prefix server   # MongoDB uses db push (prisma migrate is not supported)
 ```
 
 ---

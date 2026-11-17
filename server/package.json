@@ -9,7 +9,7 @@
     "worker": "node src/workers/videoWorker.js",
     "worker:segment": "node src/workers/lectureSegmentWorker.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio"
   },
   "dependencies": {

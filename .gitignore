@@ -9,3 +9,7 @@ client/dist/
 .DS_Store
 start.bat
 context.md
+uploads/
+server/uploads/
+server/.test-output/
+*.stackdump

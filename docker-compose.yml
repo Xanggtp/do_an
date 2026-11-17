@@ -1,0 +1,37 @@
+# Local infrastructure for ClassMind.
+#   npm run services:up        -> Redis only (team database stays on MongoDB Atlas)
+#   npm run services:up:mongo  -> Redis + local MongoDB replica set (Prisma needs a replica set)
+# Local Mongo DATABASE_URL: mongodb://127.0.0.1:27017/account_dashboard?replicaSet=rs0&directConnection=true
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  mongo:
+    profiles: ["mongo"]
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: '127.0.0.1:27017' }] }).ok }"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  mongo-data:

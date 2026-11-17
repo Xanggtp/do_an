@@ -6,7 +6,10 @@
     "install:all": "npm install && npm install --prefix server && npm install --prefix client",
     "dev": "concurrently \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
     "build": "npm run build --prefix client",
-    "start": "npm run start --prefix server"
+    "start": "npm run start --prefix server",
+    "services:up": "docker compose up -d redis",
+    "services:up:mongo": "docker compose --profile mongo up -d",
+    "services:down": "docker compose --profile mongo down"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
