@@ -70,6 +70,21 @@ export async function createClass(agent, { semester = '2026.1', name = 'Giải t
   return response.body.class;
 }
 
+/** Synthetic lecture video (test pattern + tone) made with the bundled ffmpeg. */
+export async function makeTestVideo(target, seconds = 70) {
+  const { default: ffmpeg } = await import('../src/config/ffmpeg.js');
+  await new Promise((resolve, reject) => {
+    ffmpeg()
+      .input(`testsrc=size=160x120:rate=10:duration=${seconds}`).inputFormat('lavfi')
+      .input(`sine=frequency=440:duration=${seconds}`).inputFormat('lavfi')
+      .outputOptions(['-c:v libx264', '-preset ultrafast', '-pix_fmt yuv420p', '-g 10', '-c:a aac', '-shortest'])
+      .on('end', resolve)
+      .on('error', reject)
+      .save(target);
+  });
+  return target;
+}
+
 export async function waitFor(check, { timeoutMs = 60000, intervalMs = 300 } = {}) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {

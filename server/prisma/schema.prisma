@@ -38,6 +38,11 @@ model User {
   securityAnswerHash String
   /// Incremented on password change/reset so older JWTs stop working. Optional so existing users need no migration.
   tokenVersion       Int?     @default(0)
+  /// Teacher's own Gemini API key, AES-256-GCM encrypted (utils/secretBox.js). Never sent to the client.
+  geminiApiKeyEnc    String?
+  /// Last 4 characters of the key, shown in Settings so the user can recognise it.
+  geminiKeyHint      String?
+  geminiModel        String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   teacher            Teacher?

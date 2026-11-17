@@ -39,6 +39,8 @@ export const config = {
   segmentSeconds: Number(process.env.SEGMENT_SECONDS || 120),
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  // Encrypts API keys teachers save in Settings; falls back to JWT_SECRET when empty.
+  settingsEncryptionKey: process.env.SETTINGS_ENCRYPTION_KEY || '',
   // Requests per IP per 15 minutes; set RATE_LIMIT_ENABLED=false to turn limits off (e.g. load tests).
   rateLimitEnabled: process.env.RATE_LIMIT_ENABLED !== 'false',
   authRateLimit: Number(process.env.AUTH_RATE_LIMIT || 20),

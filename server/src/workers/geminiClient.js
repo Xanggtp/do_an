@@ -1,32 +1,65 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/env.js';
+import { decryptSecret } from '../utils/secretBox.js';
 
 const API_ROOT = 'https://generativelanguage.googleapis.com';
 const FILE_READY_TIMEOUT_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
-export function isGeminiEnabled() {
-  return Boolean(config.geminiApiKey) && config.workerMode !== 'stub';
+/** Models a teacher can pick in Settings. */
+export const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
+
+/**
+ * Which Gemini credentials analyze a teacher's videos:
+ * 1. the key the teacher saved in Settings (works in every WORKER_MODE),
+ * 2. otherwise the server-wide GEMINI_API_KEY (not in WORKER_MODE=stub),
+ * 3. otherwise null -> deterministic stub analysis.
+ */
+export function resolveGeminiCredentials(user) {
+  if (user?.geminiApiKeyEnc) {
+    const apiKey = decryptSecret(user.geminiApiKeyEnc);
+    if (!apiKey) throw new Error('The saved Gemini API key can no longer be read. Please enter it again in Settings.');
+    return { apiKey, model: user.geminiModel || config.geminiModel, source: 'user' };
+  }
+  if (config.geminiApiKey && config.workerMode !== 'stub') {
+    return { apiKey: config.geminiApiKey, model: config.geminiModel, source: 'server' };
+  }
+  return null;
 }
 
-async function geminiFetch(url, options = {}) {
+async function geminiFetch(credentials, url, options = {}) {
   const response = await fetch(url, {
     ...options,
-    headers: { 'x-goog-api-key': config.geminiApiKey, ...(options.headers || {}) },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+    headers: { 'x-goog-api-key': credentials.apiKey, ...(options.headers || {}) },
+    signal: AbortSignal.timeout(options.timeoutMs || REQUEST_TIMEOUT_MS)
   });
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    throw new Error(`Gemini API ${response.status}: ${body.slice(0, 300)}`);
+    throw Object.assign(new Error(`Gemini API ${response.status}: ${body.slice(0, 300)}`), { geminiStatus: response.status });
   }
   return response;
 }
 
+/**
+ * Checks a key and model against Gemini without spending tokens (model metadata lookup).
+ * Resolves on success; rejects with a user-facing message otherwise.
+ */
+export async function verifyGeminiKey(apiKey, model) {
+  try {
+    await geminiFetch({ apiKey }, `${API_ROOT}/v1beta/models/${encodeURIComponent(model)}`, { timeoutMs: 15000 });
+  } catch (error) {
+    if ([400, 401, 403].includes(error.geminiStatus)) throw Object.assign(new Error('Google rejected this API key. Check that you copied the whole key from Google AI Studio.'), { statusCode: 400 });
+    if (error.geminiStatus === 404) throw Object.assign(new Error(`The model ${model} is not available for this key.`), { statusCode: 400 });
+    if (error.geminiStatus === 429) throw Object.assign(new Error('This key has hit its Gemini quota. Try again later or use another key.'), { statusCode: 400 });
+    throw Object.assign(new Error('Could not reach Google to check the key. Check the internet connection and try again.'), { statusCode: 502 });
+  }
+}
+
 /** Uploads a local video through the Gemini File API (resumable protocol) and waits until it is ACTIVE. */
-async function uploadFile(filePath, mimeType = 'video/mp4') {
+async function uploadFile(credentials, filePath, mimeType = 'video/mp4') {
   const { size } = await fs.promises.stat(filePath);
-  const start = await geminiFetch(`${API_ROOT}/upload/v1beta/files`, {
+  const start = await geminiFetch(credentials, `${API_ROOT}/upload/v1beta/files`, {
     method: 'POST',
     headers: {
       'X-Goog-Upload-Protocol': 'resumable',
@@ -40,7 +73,7 @@ async function uploadFile(filePath, mimeType = 'video/mp4') {
   const uploadUrl = start.headers.get('x-goog-upload-url');
   if (!uploadUrl) throw new Error('Gemini File API did not return an upload URL.');
 
-  const uploaded = await geminiFetch(uploadUrl, {
+  const uploaded = await geminiFetch(credentials, uploadUrl, {
     method: 'POST',
     headers: {
       'Content-Length': String(size),
@@ -55,14 +88,14 @@ async function uploadFile(filePath, mimeType = 'video/mp4') {
   while (file.state === 'PROCESSING') {
     if (Date.now() > deadline) throw new Error('Gemini file processing timed out.');
     await new Promise((resolve) => setTimeout(resolve, 3000));
-    file = await (await geminiFetch(`${API_ROOT}/v1beta/${file.name}`)).json();
+    file = await (await geminiFetch(credentials, `${API_ROOT}/v1beta/${file.name}`)).json();
   }
   if (file.state !== 'ACTIVE') throw new Error(`Gemini file is not usable (state: ${file.state}).`);
   return file;
 }
 
-async function deleteFile(name) {
-  await geminiFetch(`${API_ROOT}/v1beta/${name}`, { method: 'DELETE' }).catch(() => {});
+async function deleteFile(credentials, name) {
+  await geminiFetch(credentials, `${API_ROOT}/v1beta/${name}`, { method: 'DELETE' }).catch(() => {});
 }
 
 const scoreSchema = { type: 'INTEGER', description: 'Score from 1 (poor) to 5 (excellent)' };
@@ -161,10 +194,10 @@ function buildPrompt({ index, total, startSec, endSec, className, subject, previ
 }
 
 /** Sends one local segment file to Gemini and returns the parsed JSON review. */
-export async function analyzeSegmentWithGemini(filePath, context) {
-  const file = await uploadFile(filePath);
+export async function analyzeSegmentWithGemini(credentials, filePath, context) {
+  const file = await uploadFile(credentials, filePath);
   try {
-    const response = await geminiFetch(`${API_ROOT}/v1beta/models/${config.geminiModel}:generateContent`, {
+    const response = await geminiFetch(credentials, `${API_ROOT}/v1beta/models/${credentials.model}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -187,6 +220,6 @@ export async function analyzeSegmentWithGemini(filePath, context) {
     if (!text) throw new Error(`Gemini returned no content (finishReason: ${data.candidates?.[0]?.finishReason || 'unknown'}).`);
     return JSON.parse(text);
   } finally {
-    await deleteFile(file.name);
+    await deleteFile(credentials, file.name);
   }
 }

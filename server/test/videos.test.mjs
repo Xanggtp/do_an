@@ -2,29 +2,16 @@ import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import ffmpeg from '../src/config/ffmpeg.js';
-import { createClass, registerTeacher, startTestApp, waitFor } from './setup.mjs';
+import { createClass, makeTestVideo, registerTeacher, startTestApp, waitFor } from './setup.mjs';
 
 let ctx;
 let videoPath;
 
-// 70s synthetic lecture (test pattern + tone), split into 30s segments => 3 segments.
-function makeTestVideo(target) {
-  return new Promise((resolve, reject) => {
-    ffmpeg()
-      .input('testsrc=size=160x120:rate=10:duration=70').inputFormat('lavfi')
-      .input('sine=frequency=440:duration=70').inputFormat('lavfi')
-      .outputOptions(['-c:v libx264', '-preset ultrafast', '-pix_fmt yuv420p', '-g 10', '-c:a aac', '-shortest'])
-      .on('end', resolve)
-      .on('error', reject)
-      .save(target);
-  });
-}
-
+// 70s synthetic lecture split into 30s segments => 3 segments.
 before(async () => {
   ctx = await startTestApp({ SEGMENT_SECONDS: '30' });
   videoPath = path.join(ctx.uploadDirectory, '..', `${path.basename(ctx.uploadDirectory)}-lecture.mp4`);
-  await makeTestVideo(videoPath);
+  await makeTestVideo(videoPath, 70);
 });
 after(async () => {
   if (videoPath) fs.rmSync(videoPath, { force: true });

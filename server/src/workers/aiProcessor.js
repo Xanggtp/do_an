@@ -5,7 +5,7 @@ import { prisma } from '../config/prisma.js';
 import { config } from '../config/env.js';
 import { objectKeyFromFileUrl, persistFile, removePrefix, segmentPrefix, withLocalFile } from '../storage/storage.js';
 import { sliceVideoIntoSegments, validateMediaFile } from './lectureSegmentWorker.js';
-import { analyzeSegmentWithGemini, isGeminiEnabled } from './geminiClient.js';
+import { analyzeSegmentWithGemini, resolveGeminiCredentials } from './geminiClient.js';
 
 /*
  * Lecture processing pipeline:
@@ -96,7 +96,12 @@ export async function processVideo(videoId) {
   await setProgress(videoId, { status: 'PROCESSING', stage: 'VALIDATING', progress: PROGRESS.validating, error: null });
 
   try {
-    const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId }, include: { class: true } });
+    const video = await prisma.video.findUniqueOrThrow({
+      where: { id: videoId },
+      include: { class: { include: { teacher: { include: { user: true } } } } }
+    });
+    // Resolve before the slow steps so a bad saved key fails fast with a clear message.
+    const gemini = resolveGeminiCredentials(video.class?.teacher?.user);
 
     // Make retries idempotent: drop segments from any previous attempt
     await prisma.videoSegment.deleteMany({ where: { videoId } });
@@ -147,7 +152,6 @@ export async function processVideo(videoId) {
 
     // 4. Per-segment AI analysis
     await setProgress(videoId, { stage: 'ANALYZING', progress: PROGRESS.segmentingEnd });
-    const useGemini = isGeminiEnabled();
     const analyzed = [];
     let previousSummary = '';
     for (const row of segmentRows.rows) {
@@ -160,10 +164,10 @@ export async function processVideo(videoId) {
         subject: video.class?.subject,
         previousSummary
       };
-      const review = useGemini
-        ? await withLocalFile(row.storageKey, (segmentPath) => analyzeSegmentWithGemini(segmentPath, context))
+      const review = gemini
+        ? await withLocalFile(row.storageKey, (segmentPath) => analyzeSegmentWithGemini(gemini, segmentPath, context))
         : stubAnalyzeSegment(context);
-      const stored = { ...review, status: 'success', chunk_id: `segment_${String(row.index).padStart(3, '0')}`, provider: useGemini ? config.geminiModel : 'stub' };
+      const stored = { ...review, status: 'success', chunk_id: `segment_${String(row.index).padStart(3, '0')}`, provider: gemini ? gemini.model : 'stub' };
       await prisma.videoSegment.update({ where: { videoId_index: { videoId, index: row.index } }, data: { review: stored } });
       analyzed.push({ ...row, review: stored });
       previousSummary = review.content_review?.summary || '';
