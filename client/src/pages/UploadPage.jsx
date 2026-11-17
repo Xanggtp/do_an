@@ -10,6 +10,7 @@ import {
   Info,
   LoaderCircle,
   Presentation,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Star,
@@ -19,8 +20,7 @@ import {
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
-import api from '../lib/api.js';
-import { createUploadedObservation } from '../lib/mockObservations.js';
+import api, { uploadWithProgress } from '../lib/api.js';
 
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024;
 
@@ -28,6 +28,11 @@ function formatBytes(bytes) {
   if (!bytes) return '0 B';
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatClock(seconds) {
+  const value = Math.max(0, Math.floor(seconds || 0));
+  return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
 }
 
 export function UploadPage() {
@@ -40,18 +45,23 @@ export function UploadPage() {
   const initialClass = location.state?.classItem || null;
 
   const inputRefs = useRef({});
-  const timerRef = useRef(null);
+  const pollRef = useRef(null);
+  const uploadRef = useRef(null);
   const [files, setFiles] = useState({});
   const [classes, setClasses] = useState(initialClass ? [initialClass] : []);
   const [selectedClassId, setSelectedClassId] = useState(targetClassId || initialClass?.id || '');
   const [loadingClasses, setLoadingClasses] = useState(!initialClass);
   const [stage, setStage] = useState('select'); // 'select' | 'uploading' | 'checking' | 'review'
   const [progress, setProgress] = useState(0);
-  const [checkingStep, setCheckingStep] = useState(1);
+  const [videoId, setVideoId] = useState('');
+  const [pipeline, setPipeline] = useState(null); // latest /api/videos/:id/status payload
   const [error, setError] = useState('');
   const [aiReviewData, setAiReviewData] = useState(null);
 
-  useEffect(() => () => clearInterval(timerRef.current), []);
+  useEffect(() => () => {
+    clearTimeout(pollRef.current);
+    uploadRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -109,93 +119,94 @@ export function UploadPage() {
     setStage('select');
   };
 
+  const stopPolling = () => clearTimeout(pollRef.current);
+
+  // Poll the real processing pipeline: VALIDATING -> SEGMENTING -> ANALYZING -> COMPLETED
+  const pollStatus = (id) => {
+    stopPolling();
+    api(`/api/videos/${id}/status`)
+      .then((data) => {
+        setPipeline(data);
+        if (data.stage === 'FAILED') {
+          setStage('checking');
+          return;
+        }
+        const firstReview = data.segments?.find((segment) => segment.index === 1)?.review;
+        if (firstReview) {
+          setAiReviewData({ ...firstReview, startSec: data.segments[0].startSec, endSec: data.segments[0].endSec });
+          setStage('review');
+        }
+        if (data.stage !== 'COMPLETED') pollRef.current = setTimeout(() => pollStatus(id), 2000);
+      })
+      .catch(() => { pollRef.current = setTimeout(() => pollStatus(id), 4000); });
+  };
+
   const startUpload = () => {
     if (!files.video) return setError(t('selectVideo'));
     if (!assignedClass) return setError(t('selectClass'));
     setError('');
+    setPipeline(null);
+    setAiReviewData(null);
     setStage('uploading');
-    setProgress(10);
+    setProgress(0);
 
-    // Stage 1: Uploading progress
-    timerRef.current = setInterval(() => {
-      setProgress((value) => {
-        if (value >= 100) {
-          clearInterval(timerRef.current);
-          startCheckingProcess();
-          return 100;
-        }
-        return value + 15;
+    const formData = new FormData();
+    formData.append('classId', assignedClass.id);
+    formData.append('video', files.video);
+    const upload = uploadWithProgress('/api/videos/upload', formData, setProgress);
+    uploadRef.current = upload;
+    upload.promise
+      .then((data) => {
+        setVideoId(data.videoId);
+        setStage('checking');
+        pollStatus(data.videoId);
+      })
+      .catch((uploadError) => {
+        if (uploadError.aborted) return;
+        setError(uploadError.message);
+        setStage('select');
       });
-    }, 150);
   };
 
-  const startCheckingProcess = () => {
-    setStage('checking');
-    setCheckingStep(1);
-
-    // Step 1: ffprobe check -> Step 2: 120s Segmentation -> Step 3: AI Review Agent
-    setTimeout(() => {
-      setCheckingStep(2);
-      setTimeout(() => {
-        setCheckingStep(3);
-        setTimeout(() => {
-          finalizeReview();
-        }, 900);
-      }, 900);
-    }, 900);
+  const retryProcessing = async () => {
+    if (!videoId) return;
+    try {
+      await api(`/api/videos/${videoId}/reprocess`, { method: 'POST' });
+      setPipeline(null);
+      pollStatus(videoId);
+    } catch (retryError) {
+      setError(retryError.message);
+    }
   };
 
-  const finalizeReview = () => {
-    const videoName = files.video?.name.replace(/\.mp4$/i, '') || 'Tiết học';
-    const className = assignedClass?.name || 'Lớp học';
-    const subject = assignedClass?.subject || 'Bài giảng đại học';
-
-    const review = {
-      status: 'success',
-      chunk_id: 'segment_001',
-      quality_scores: {
-        audio_quality: 5,
-        video_quality: 5,
-        content_clarity: 4,
-        processing_confidence: 5
-      },
-      content_review: {
-        main_topic: `Khởi động tiết học & Đặt vấn đề bài học: ${videoName} (${subject})`,
-        summary: `Giảng viên mở đầu bài giảng bằng việc tóm lược kiến thức buổi trước, đặt câu hỏi gợi mở định hướng bài học mới và phân công hoạt động thảo luận nhóm cho sinh viên.`,
-        key_points: [
-          'Giảng viên kích hoạt kiến thức nền tảng và nhận thức ban đầu của sinh viên qua câu hỏi gợi mở.',
-          'Xác định rõ ràng mục tiêu đầu ra và các tiêu chí trọng tâm của tiết học.',
-          'Tổ chức lớp học theo mô hình thảo luận nhóm nhỏ tương tác (Small group work).'
-        ],
-        important_visuals: [
-          'Slide trình chiếu tiêu đề bài học và câu hỏi thảo luận trung tâm.',
-          'Sơ đồ phân loại khái niệm và công thức minh họa trên bảng phụ.'
-        ],
-        continuity_notes: 'Phân đoạn mở đầu bài học (00:00 - 02:00). Nội dung dẫn nhập mạch lạc, chuẩn bị kết nối trực tiếp vào phần trình bày nội dung trọng tâm ở phân đoạn 2.'
-      },
-      issues_detected: [],
-      recommendation: 'continue',
-      error_message: null
-    };
-
-    setAiReviewData(review);
-    setStage('review');
+  const resetToSelect = () => {
+    stopPolling();
+    uploadRef.current?.abort();
+    setStage('select');
+    setAiReviewData(null);
+    setPipeline(null);
+    setVideoId('');
   };
 
   const handleConfirmAndProceed = () => {
-    const selectedClass = assignedClass;
-    const observation = createUploadedObservation(files.video, selectedClass?.id || selectedClassId, {
-      slides: files.slides,
-      lessonPlan: files.lessonPlan,
-      audio: files.audio,
-      className: selectedClass?.name || 'Observation',
-      classCode: selectedClass?.classCode || '',
-      subject: selectedClass?.subject || '',
-      semester: selectedClass?.semester || '',
-      aiReview: aiReviewData
-    });
+    const materials = {
+      slides: files.slides ? { name: files.slides.name, size: files.slides.size } : null,
+      lessonPlan: files.lessonPlan ? { name: files.lessonPlan.name, size: files.lessonPlan.size } : null,
+      audio: files.audio ? { name: files.audio.name, size: files.audio.size } : null
+    };
+    navigate(`/observation/${videoId}`, { state: { materials } });
+  };
 
-    navigate(`/observation/${observation.id}`, { state: { observation } });
+  const pipelineStage = pipeline?.stage || 'UPLOADED';
+  const checkingStep = { UPLOADED: 1, VALIDATING: 1, SEGMENTING: 2, ANALYZING: 3, COMPLETED: 4, FAILED: 0 }[pipelineStage] ?? 1;
+  const pipelineFailed = pipelineStage === 'FAILED';
+  const segmentCount = pipeline?.segments?.length || 0;
+  const reviewedCount = pipeline?.segments?.filter((segment) => segment.review).length || 0;
+  const scoreValue = (value) => Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
+  const recommendationLabels = {
+    continue: isVi ? 'Tiếp tục' : 'Continue',
+    review: isVi ? 'Cần xem lại' : 'Needs review',
+    reupload: isVi ? 'Nên tải lại' : 'Re-upload'
   };
 
   const stageLabels = { select: '01', uploading: '02', checking: '03', review: '04' };
@@ -344,10 +355,35 @@ export function UploadPage() {
                 <span className="file-icon"><FileVideo size={18} /></span>
                 <span>
                   <strong>{files.video?.name}</strong>
-                  <small>{formatBytes(files.video?.size)} · {isVi ? 'Đang xác minh & phân đoạn' : 'Validating & segmenting'}</small>
+                  <small>
+                    {formatBytes(files.video?.size)} · {pipelineFailed
+                      ? (isVi ? 'Xử lý thất bại' : 'Processing failed')
+                      : `${isVi ? 'Đang xác minh & phân đoạn' : 'Validating & segmenting'} · ${pipeline?.progress ?? 0}%`}
+                  </small>
                 </span>
               </div>
+              {!pipelineFailed && (
+                <div className="progress-track">
+                  <span style={{ width: `${pipeline?.progress ?? 0}%` }} />
+                </div>
+              )}
 
+              {pipelineFailed ? (
+                <>
+                  <p className="form-alert">
+                    {isVi ? 'Không xử lý được video: ' : 'The video could not be processed: '}{pipeline?.error || ''}
+                  </p>
+                  {error && <p className="form-alert">{error}</p>}
+                  <div className="review-actions-row">
+                    <button type="button" className="outline-button" onClick={resetToSelect}>
+                      {isVi ? 'Chọn lại tệp khác' : 'Change File'}
+                    </button>
+                    <button type="button" className="primary-button" onClick={retryProcessing}>
+                      <RotateCcw size={16} /> {isVi ? 'Thử xử lý lại' : 'Retry processing'}
+                    </button>
+                  </div>
+                </>
+              ) : (
               <div className="check-pipeline-steps">
                 {/* Step 1: ffprobe check */}
                 <div className={`check-step-item ${checkingStep > 1 ? 'is-done' : 'is-active'}`}>
@@ -358,7 +394,7 @@ export function UploadPage() {
                     <strong>{isVi ? 'Kiểm tra tính toàn vẹn (ffprobe)' : 'Media Integrity Check (ffprobe)'}</strong>
                     <p>
                       {checkingStep > 1
-                        ? (isVi ? 'Tệp MP4 hợp lệ, luồng âm thanh & hình ảnh đồng bộ không lỗi.' : 'Valid MP4 stream, duration verified, no media corruption.')
+                        ? `${isVi ? 'Tệp MP4 hợp lệ' : 'Valid MP4'} · ${formatClock(pipeline?.duration)} · ${pipeline?.resolution || ''} · ${pipeline?.videoCodec || ''}`
                         : (isVi ? 'Đang đọc luồng dữ liệu, codec và tính toàn vẹn tệp...' : 'Reading audio/video streams, codec and duration...')}
                     </p>
                   </div>
@@ -373,27 +409,30 @@ export function UploadPage() {
                     <strong>{isVi ? 'Phân đoạn 2 phút không nén lại (-c copy)' : '2-Minute Lossless Segmentation (-c copy)'}</strong>
                     <p>
                       {checkingStep > 2
-                        ? (isVi ? 'Đã phân tách video thành các phân đoạn 120 giây tuần tự (segment_001.mp4, segment_002.mp4...).' : 'Video successfully sliced into 120-second sequential chunks.')
+                        ? (isVi ? `Đã tách video thành ${segmentCount} phân đoạn (segment_001.mp4 …).` : `Video sliced into ${segmentCount} sequential segments.`)
                         : checkingStep === 2
-                        ? (isVi ? 'Đang cắt lát video thành các phân đoạn 120 giây bảo toàn 100% chất lượng gốc...' : 'Slicing video into 120s segments with stream copy...')
+                        ? (isVi ? 'Đang cắt video thành các phân đoạn 120 giây, giữ nguyên chất lượng gốc...' : 'Slicing video into 120s segments with stream copy...')
                         : (isVi ? 'Chờ kiểm tra xong tính toàn vẹn tệp.' : 'Waiting for integrity check completion.')}
                     </p>
                   </div>
                 </div>
 
                 {/* Step 3: AI Video Review Agent */}
-                <div className={`check-step-item ${checkingStep === 3 ? 'is-active' : ''}`}>
+                <div className={`check-step-item ${checkingStep > 3 ? 'is-done' : checkingStep === 3 ? 'is-active' : ''}`}>
                   <div className="check-step-icon">
-                    <LoaderCircle size={16} className="spin" />
+                    {checkingStep > 3 ? <CheckCircle2 size={16} /> : checkingStep === 3 ? <LoaderCircle size={16} className="spin" /> : <Clock3 size={16} />}
                   </div>
                   <div className="check-step-content">
-                    <strong>{isVi ? 'Khởi tạo tác tử AI Review (segment_001)' : 'AI Video Review Agent (segment_001)'}</strong>
+                    <strong>{isVi ? 'Tác tử AI Review (segment_001)' : 'AI Video Review Agent (segment_001)'}</strong>
                     <p>
-                      {isVi ? 'Đang trích xuất chủ đề, chấm điểm chất lượng và phân tích tính liên tục...' : 'Analyzing media quality scores, continuity notes and pedagogical key points...'}
+                      {checkingStep === 3
+                        ? (isVi ? `Đang phân tích phân đoạn ${Math.min(reviewedCount + 1, segmentCount)}/${segmentCount}...` : `Analyzing segment ${Math.min(reviewedCount + 1, segmentCount)}/${segmentCount}...`)
+                        : (isVi ? 'Chờ phân đoạn xong.' : 'Waiting for segmentation.')}
                     </p>
                   </div>
                 </div>
               </div>
+              )}
             </div>
           )}
 
@@ -403,14 +442,19 @@ export function UploadPage() {
               {/* Badge row */}
               <div className="review-header-badge-row">
                 <span className="review-badge badge-info">
-                  <Clock3 size={13} /> {aiReviewData.chunk_id} (00:00 - 02:00)
+                  <Clock3 size={13} /> {aiReviewData.chunk_id} ({formatClock(aiReviewData.startSec)} - {formatClock(aiReviewData.endSec)})
                 </span>
                 <span className="review-badge badge-success">
                   <CheckCircle2 size={13} /> {isVi ? 'Trạng thái: Thành công' : 'Status: Success'}
                 </span>
                 <span className="review-badge badge-recommend">
-                  <ShieldCheck size={13} /> {isVi ? 'Khuyến nghị: Tiếp tục' : 'Recommendation: Continue'}
+                  <ShieldCheck size={13} /> {isVi ? 'Khuyến nghị: ' : 'Recommendation: '}{recommendationLabels[aiReviewData.recommendation] || aiReviewData.recommendation}
                 </span>
+                {aiReviewData.provider === 'stub' && (
+                  <span className="review-badge badge-info">
+                    <Info size={13} /> {isVi ? 'Dữ liệu mô phỏng (chưa bật Gemini)' : 'Simulated (Gemini not enabled)'}
+                  </span>
+                )}
               </div>
 
               {/* Quality Scores */}
@@ -423,10 +467,10 @@ export function UploadPage() {
                   <div className="score-box">
                     <span className="score-box-title">{isVi ? 'Âm thanh' : 'Audio Quality'}</span>
                     <div className="score-box-val">
-                      {aiReviewData.quality_scores.audio_quality}<small>/5</small>
+                      {scoreValue(aiReviewData.quality_scores?.audio_quality)}<small>/5</small>
                     </div>
                     <div className="score-stars">
-                      {[...Array(aiReviewData.quality_scores.audio_quality)].map((_, i) => (
+                      {[...Array(scoreValue(aiReviewData.quality_scores?.audio_quality))].map((_, i) => (
                         <Star key={i} size={11} fill="currentColor" />
                       ))}
                     </div>
@@ -435,10 +479,10 @@ export function UploadPage() {
                   <div className="score-box">
                     <span className="score-box-title">{isVi ? 'Hình ảnh / Slide' : 'Video Quality'}</span>
                     <div className="score-box-val">
-                      {aiReviewData.quality_scores.video_quality}<small>/5</small>
+                      {scoreValue(aiReviewData.quality_scores?.video_quality)}<small>/5</small>
                     </div>
                     <div className="score-stars">
-                      {[...Array(aiReviewData.quality_scores.video_quality)].map((_, i) => (
+                      {[...Array(scoreValue(aiReviewData.quality_scores?.video_quality))].map((_, i) => (
                         <Star key={i} size={11} fill="currentColor" />
                       ))}
                     </div>
@@ -447,10 +491,10 @@ export function UploadPage() {
                   <div className="score-box">
                     <span className="score-box-title">{isVi ? 'Độ rõ nội dung' : 'Content Clarity'}</span>
                     <div className="score-box-val">
-                      {aiReviewData.quality_scores.content_clarity}<small>/5</small>
+                      {scoreValue(aiReviewData.quality_scores?.content_clarity)}<small>/5</small>
                     </div>
                     <div className="score-stars">
-                      {[...Array(aiReviewData.quality_scores.content_clarity)].map((_, i) => (
+                      {[...Array(scoreValue(aiReviewData.quality_scores?.content_clarity))].map((_, i) => (
                         <Star key={i} size={11} fill="currentColor" />
                       ))}
                     </div>
@@ -459,10 +503,10 @@ export function UploadPage() {
                   <div className="score-box">
                     <span className="score-box-title">{isVi ? 'Độ tin cậy xử lý' : 'AI Confidence'}</span>
                     <div className="score-box-val">
-                      {aiReviewData.quality_scores.processing_confidence}<small>/5</small>
+                      {scoreValue(aiReviewData.quality_scores?.processing_confidence)}<small>/5</small>
                     </div>
                     <div className="score-stars">
-                      {[...Array(aiReviewData.quality_scores.processing_confidence)].map((_, i) => (
+                      {[...Array(scoreValue(aiReviewData.quality_scores?.processing_confidence))].map((_, i) => (
                         <Star key={i} size={11} fill="currentColor" />
                       ))}
                     </div>
@@ -483,7 +527,7 @@ export function UploadPage() {
 
                 <div className="content-field-row">
                   <span className="content-field-label">
-                    <Info size={13} /> {isVi ? 'Tóm tắt phân đoạn (2 phút đầu)' : 'Segment Summary (First 2 mins)'}
+                    <Info size={13} /> {isVi ? 'Tóm tắt phân đoạn đầu' : 'First Segment Summary'}
                   </span>
                   <p className="content-field-text">{aiReviewData.content_review.summary}</p>
                 </div>
@@ -493,7 +537,7 @@ export function UploadPage() {
                     <CheckCircle2 size={13} /> {isVi ? 'Ý chính & Điểm nhấn sư phạm' : 'Key Pedagogical Points'}
                   </span>
                   <ul className="content-review-bullets">
-                    {aiReviewData.content_review.key_points.map((pt, idx) => (
+                    {(aiReviewData.content_review.key_points || []).map((pt, idx) => (
                       <li key={idx}>{pt}</li>
                     ))}
                   </ul>
@@ -504,7 +548,7 @@ export function UploadPage() {
                     <Presentation size={13} /> {isVi ? 'Điểm nhấn hình ảnh / Slide' : 'Important Visuals & Slides'}
                   </span>
                   <ul className="content-review-bullets">
-                    {aiReviewData.content_review.important_visuals.map((vis, idx) => (
+                    {(aiReviewData.content_review.important_visuals || []).map((vis, idx) => (
                       <li key={idx}>{vis}</li>
                     ))}
                   </ul>
@@ -519,24 +563,39 @@ export function UploadPage() {
               </div>
 
               {/* Issues detected */}
-              <div className="issues-box">
-                <CheckCircle2 size={16} />
-                <span>
+              {aiReviewData.issues_detected?.length ? (
+                <div className="issues-box">
+                  <Info size={16} />
+                  <span>
+                    {isVi ? 'Vấn đề phát hiện: ' : 'Issues detected: '}{aiReviewData.issues_detected.join('; ')}
+                  </span>
+                </div>
+              ) : (
+                <div className="issues-box">
+                  <CheckCircle2 size={16} />
+                  <span>
+                    {isVi
+                      ? 'Không phát hiện lỗi chất lượng (âm thanh rõ ràng, không mờ slide, đầy đủ nội dung)'
+                      : 'No media issues detected (clear audio, sharp slides, full content)'}
+                  </span>
+                </div>
+              )}
+
+              {pipelineStage !== 'COMPLETED' && (
+                <p className="upload-footnote">
+                  <LoaderCircle size={13} className="spin" style={{ display: 'inline', marginRight: 6 }} />
                   {isVi
-                    ? 'Không phát hiện lỗi chất lượng (Đạt tiêu chuẩn: âm thanh rõ ràng, không mờ slide, đầy đủ nội dung)'
-                    : 'No media issues detected (Passes all checks: clear audio, sharp slides, full content)'}
-                </span>
-              </div>
+                    ? `Đang phân tích tiếp các phân đoạn còn lại (${reviewedCount}/${segmentCount} · ${pipeline?.progress ?? 0}%). Bạn có thể vào trang quan sát, kết quả sẽ tự cập nhật.`
+                    : `Still analyzing the remaining segments (${reviewedCount}/${segmentCount} · ${pipeline?.progress ?? 0}%). You can open the observation now; it will update automatically.`}
+                </p>
+              )}
 
               {/* Actions */}
               <div className="review-actions-row">
                 <button
                   type="button"
                   className="outline-button"
-                  onClick={() => {
-                    setStage('select');
-                    setAiReviewData(null);
-                  }}
+                  onClick={resetToSelect}
                 >
                   {isVi ? 'Chọn lại tệp khác' : 'Change File'}
                 </button>

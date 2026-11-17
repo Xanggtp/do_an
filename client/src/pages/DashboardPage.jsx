@@ -7,7 +7,28 @@ import { DeleteSemesterModal } from '../components/DeleteSemesterModal.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { usePreferences } from '../context/PreferencesContext.jsx';
 import api from '../lib/api.js';
-import { getClassVideos, mockClasses, mockTeacher } from '../lib/mockObservations.js';
+
+const thumbnails = [
+  'linear-gradient(135deg, #1d2a27 0%, #4d685d 55%, #e9785f 55%, #e9785f 100%)',
+  'linear-gradient(135deg, #253f3a 0%, #7b9a86 65%, #d9e3d1 65%)',
+  'linear-gradient(135deg, #18211f 0%, #35433d 62%, #d6a65d 62%)'
+];
+
+function toVideoCard(video, index, t) {
+  const stageSummary = {
+    UPLOADED: t('pending'),
+    VALIDATING: 'ffprobe…',
+    SEGMENTING: `${t('processing')} · ${video.progress || 0}%`,
+    ANALYZING: `${t('processing')} · ${video.progress || 0}%`
+  };
+  return {
+    ...video,
+    title: video.filename.replace(/\.mp4$/i, ''),
+    date: video.createdAt,
+    summary: video.status === 'FAILED' ? (video.error || t('failed')) : (video.summary || stageSummary[video.stage] || ''),
+    thumbnail: thumbnails[index % thumbnails.length]
+  };
+}
 
 function formatDate(value, language) {
   return new Intl.DateTimeFormat(language === 'vi' ? 'vi-VN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value));
@@ -18,7 +39,7 @@ function formatDuration(seconds) {
 }
 
 function VideoCard({ video, language, t }) {
-  const statusLabels = { COMPLETED: t('completed'), PROCESSING: t('processing'), PENDING: t('pending') };
+  const statusLabels = { COMPLETED: t('completed'), PROCESSING: t('processing'), PENDING: t('pending'), FAILED: t('failed') };
   const card = (
     <article className="observation-card">
       <div className="observation-thumbnail" style={{ background: video.thumbnail }}>
@@ -199,11 +220,30 @@ export function DashboardPage() {
     : [];
 
   const activeClass = filteredClasses.find((item) => item.id === activeClassId) || filteredClasses[0] || null;
-  const videos = useMemo(() => {
-    if (!activeClass) return [];
-    return getClassVideos(activeClass.id);
-  }, [activeClass]);
-  const firstName = user?.name?.split(' ')[0] || mockTeacher.name.split(' ')[0];
+  const activeClassKey = activeClass?.id || '';
+  const [videos, setVideos] = useState([]);
+  useEffect(() => {
+    if (!activeClassKey) {
+      setVideos([]);
+      return undefined;
+    }
+    let active = true;
+    let timer;
+    const load = () => {
+      api(`/api/classes/${activeClassKey}/videos`)
+        .then((data) => {
+          if (!active) return;
+          const list = Array.isArray(data.videos) ? data.videos : [];
+          setVideos(list.map((video, index) => toVideoCard(video, index, t)));
+          // Keep refreshing while something is still being processed
+          if (list.some((video) => video.status === 'PROCESSING' || video.status === 'PENDING')) timer = setTimeout(load, 5000);
+        })
+        .catch(() => { if (active) setVideos([]); });
+    };
+    load();
+    return () => { active = false; clearTimeout(timer); };
+  }, [activeClassKey, language]); // t() is recreated every render; language covers label changes
+  const firstName = user?.name?.split(' ')[0] || '';
 
   return (
     <Layout>

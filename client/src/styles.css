@@ -1128,3 +1128,19 @@ html[data-theme='dark'] .issues-box {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* Real pipeline: failed status, processing state, segment reviews */
+.status-failed span { background: #e9785f; }
+.observation-status-card { display: flex; align-items: flex-start; gap: 14px; margin-top: 24px; padding: 22px; color: #33403a; background: #fbfaf6; border: 1px solid #e0e2da; border-radius: 7px; }
+.observation-status-card > div { flex: 1; min-width: 0; }
+.observation-status-card h2 { margin-bottom: 6px; font-size: 1rem; }
+.observation-status-card p { margin-bottom: 12px; color: #6d7a73; font-size: .78rem; }
+.segment-review-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.segment-review-item { display: flex; flex-direction: column; gap: 6px; padding: 14px; text-align: left; color: #33403a; background: #fbfaf6; border: 1px solid #e0e2da; border-radius: 6px; cursor: pointer; transition: border-color .2s, transform .2s; }
+.segment-review-item:hover { border-color: #bdcbbd; transform: translateY(-1px); }
+.segment-review-item strong { font-size: .8rem; }
+.segment-review-item p { margin: 0; color: #6d7a73; font-size: .7rem; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.segment-review-time { display: inline-flex; align-items: center; gap: 5px; color: #4d685d; font-size: .62rem; font-weight: 800; }
+html[data-theme='dark'] .observation-status-card, html[data-theme='dark'] .segment-review-item { color: #e6eee9; background: #1a2723; border-color: #30423a; }
+html[data-theme='dark'] .observation-status-card p, html[data-theme='dark'] .segment-review-item p { color: #9baea4; }
+html[data-theme='dark'] .segment-review-time { color: #9fc2ad; }
