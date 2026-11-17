@@ -96,7 +96,18 @@ npm run prisma:push --prefix server   # MongoDB uses db push (prisma migrate is 
 
 ## Running the Application
 
-### Local Development (Default Stub Mode — No Redis or FFmpeg Required)
+Every upload runs the real pipeline: `ffprobe` validation → 120s `-c copy` segmentation → per-segment analysis → lecture summary.
+Progress is stored on the video (`stage`, `progress`) and polled by the upload and observation pages.
+
+| `WORKER_MODE` | Where the pipeline runs | AI analysis | Needs Redis |
+|---|---|---|---|
+| `stub` (default) | Inside the API process | Deterministic stub data | No |
+| `inline` | Inside the API process | Gemini if `GEMINI_API_KEY` is set, otherwise stub | No |
+| `queue` | `npm run worker --prefix server` (BullMQ) | Gemini if `GEMINI_API_KEY` is set, otherwise stub | Yes |
+
+FFmpeg/FFprobe are bundled, so no manual install is needed in any mode.
+
+### Local Development
 
 ```bash
 npm run dev
@@ -104,22 +115,33 @@ npm run dev
 
 Starts the Express API at `http://localhost:5000` and Vite frontend at `http://localhost:5173`.
 
-### Production Queue Mode
+### Real AI analysis with Gemini
 
-1. **Start the API server**:
+Set `GEMINI_API_KEY` (Google AI Studio) and optionally `GEMINI_MODEL` in `.env`, then use `WORKER_MODE=inline` or `queue`.
+Each segment is uploaded to the Gemini File API, analyzed with a JSON response schema (quality scores, content review,
+transcript, Danielson feedback, COPUS codes, Bloom counts) and deleted from Gemini afterwards.
+
+### Queue Mode (Redis via Docker)
+
+1. **Start Redis** (requires Docker Desktop with virtualization enabled):
+   ```bash
+   npm run services:up
+   ```
+   `npm run services:up:mongo` also starts a local MongoDB replica set if you do not want to use Atlas
+   (`DATABASE_URL=mongodb://127.0.0.1:27017/account_dashboard?replicaSet=rs0&directConnection=true`).
+
+2. **Start the API server**:
    ```bash
    WORKER_MODE=queue npm run dev --prefix server
    ```
 
-2. **Start the primary video processing worker**:
+3. **Start the video processing worker** (validation + segmentation + analysis):
    ```bash
    WORKER_MODE=queue npm run worker --prefix server
    ```
 
-3. **Start the lecture segmentation worker** (120s chunking for GPT-4o Vision):
-   ```bash
-   npm run worker:segment --prefix server
-   ```
+`npm run worker:segment --prefix server` still starts the standalone `lecture-segmentation` queue worker, which only slices videos
+and returns segment paths; the main pipeline above does not need it.
 
 ---
 
@@ -147,7 +169,8 @@ do_an/
 │   │   ├── storage/
 │   │   │   └── storage.js           # Local & S3 storage drivers
 │   │   └── workers/
-│   │       ├── aiProcessor.js            # Deterministic Danielson/COPUS/Bloom stubs (replace with GPT-4o)
+│   │       ├── aiProcessor.js            # Pipeline: validate → segment → analyze (Gemini/stub) → summarize
+│   │       ├── geminiClient.js           # Gemini File API upload + structured JSON analysis per segment
 │   │       ├── videoWorker.js            # Primary BullMQ processing worker
 │   │       └── lectureSegmentWorker.js   # ffprobe validation + 120s lossless segmentation
 │   ├── test-segment.mjs             # Integration test for the segmentation pipeline
@@ -176,8 +199,11 @@ All classroom routes require the `account_dashboard_token` HttpOnly cookie set a
 | `POST` | `/api/semesters` | Create a semester |
 | `DELETE` | `/api/semesters/:id` | Delete a semester and all its classes |
 | `POST` | `/api/videos/upload` | Upload MP4 (`multipart/form-data`) with `classId` |
-| `GET` | `/api/videos/:videoId/status` | Poll processing status (`PENDING` → `PROCESSING` → `COMPLETED` / `FAILED`) |
-| `GET` | `/api/videos/:videoId/observation` | Retrieve timestamped feedback, COPUS timeline, Bloom distribution |
+| `GET` | `/api/classes/:id/videos` | List the videos of a class (with first-segment summary) |
+| `GET` | `/api/videos/:videoId/status` | Poll `stage` (`UPLOADED` → `VALIDATING` → `SEGMENTING` → `ANALYZING` → `COMPLETED` / `FAILED`), `progress`, media info and segment reviews |
+| `POST` | `/api/videos/:videoId/reprocess` | Run the pipeline again (e.g. after a failure) |
+| `DELETE` | `/api/videos/:videoId` | Delete a video, its analysis and its segment files |
+| `GET` | `/api/videos/:videoId/observation` | Retrieve timestamped feedback, COPUS timeline, Bloom distribution and segment reviews (202 while processing, 422 if failed) |
 | `GET` | `/api/videos/:videoId/media` | Stream video or get signed S3 URL |
 
 ---
