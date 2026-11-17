@@ -2,15 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'bullmq';
-import ffmpeg from 'fluent-ffmpeg';
+import IORedis from 'ioredis';
+// Bundled ffmpeg/ffprobe binaries (FFMPEG_PATH / FFPROBE_PATH still override them)
+import ffmpeg from '../config/ffmpeg.js';
 
-// Optional: Configure custom ffmpeg / ffprobe binaries from environment variables
-if (process.env.FFMPEG_PATH) {
-  ffmpeg.setFfmpegPath(process.env.FFMPEG_PATH);
-}
-if (process.env.FFPROBE_PATH) {
-  ffmpeg.setFfprobePath(process.env.FFPROBE_PATH);
-}
+const DEFAULT_SEGMENT_SECONDS = Number(process.env.SEGMENT_SECONDS || 120);
 
 /**
  * Parses FFmpeg timemark strings (HH:MM:SS.ms) into total seconds.
@@ -97,9 +93,11 @@ export async function validateMediaFile(inputSource) {
  * @param {string} params.outputDir - Target directory for segments
  * @param {number} params.totalDuration - Total video duration in seconds
  * @param {import('bullmq').Job} [params.job] - BullMQ job instance for logging/progress
+ * @param {number} [params.segmentSeconds=120] - Segment length in seconds
+ * @param {(percent: number) => void} [params.onProgress] - Segmentation progress callback (0-100)
  * @returns {Promise<string[]>} Array of absolute paths to generated segment files
  */
-export async function sliceVideoIntoSegments({ inputSource, outputDir, totalDuration, job }) {
+export async function sliceVideoIntoSegments({ inputSource, outputDir, totalDuration, job, segmentSeconds = DEFAULT_SEGMENT_SECONDS, onProgress }) {
   await fs.promises.mkdir(outputDir, { recursive: true });
   const outputPattern = path.join(outputDir, 'segment_%03d.mp4');
 
@@ -108,7 +106,7 @@ export async function sliceVideoIntoSegments({ inputSource, outputDir, totalDura
       .outputOptions([
         '-c copy',                 // Stream copy (fast, zero quality loss, no re-encoding)
         '-f segment',              // Segment muxer
-        '-segment_time 120',       // 120-second (2 minutes) chunks
+        `-segment_time ${segmentSeconds}`, // 120-second (2 minutes) chunks by default
         '-reset_timestamps 1',     // Reset timestamps so each segment starts at 00:00:00
         '-segment_start_number 1'  // Start numbering at 1 (segment_001.mp4)
       ])
@@ -117,7 +115,7 @@ export async function sliceVideoIntoSegments({ inputSource, outputDir, totalDura
         if (job) job.log(`[FFmpeg] Process started: ${commandLine}`);
       })
       .on('progress', (progress) => {
-        if (!job) return;
+        if (!job && !onProgress) return;
         let segmentProgress = null;
 
         if (typeof progress.percent === 'number' && !Number.isNaN(progress.percent) && progress.percent > 0) {
@@ -127,7 +125,8 @@ export async function sliceVideoIntoSegments({ inputSource, outputDir, totalDura
           segmentProgress = Math.min(100, (currentSeconds / totalDuration) * 100);
         }
 
-        if (segmentProgress !== null) {
+        if (segmentProgress !== null && onProgress) onProgress(segmentProgress);
+        if (segmentProgress !== null && job) {
           // Scale segmentation phase from 20% to 90% overall BullMQ job progress
           const overallProgress = Math.min(90, Math.max(20, Math.round(20 + segmentProgress * 0.7)));
           job.updateProgress(overallProgress).catch(() => {});
@@ -237,11 +236,8 @@ export async function processLectureJob(job) {
  */
 export function createLectureSegmentWorker(config = {}) {
   const queueName = config.queueName || 'lecture-segmentation';
-  const connection = config.connection || {
-    host: process.env.REDIS_HOST || '127.0.0.1',
-    port: Number(process.env.REDIS_PORT || 6379),
-    maxRetriesPerRequest: null
-  };
+  // Same Redis settings as the rest of the API (REDIS_URL)
+  const connection = config.connection || new IORedis(process.env.REDIS_URL || 'redis://127.0.0.1:6379', { maxRetriesPerRequest: null });
 
   const worker = new Worker(queueName, processLectureJob, {
     connection,

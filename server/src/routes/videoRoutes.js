@@ -6,11 +6,14 @@ import {
   createSemester,
   deleteClass,
   deleteSemester,
+  deleteVideo,
   getClasses,
+  getClassVideos,
   getSemesters,
   getDashboard,
   getObservation,
   getVideoStatus,
+  reprocessVideo,
   streamVideo,
   updateClass,
   uploadObservation,
@@ -24,6 +27,7 @@ router.post('/classes', asyncHandler(createClass));
 router.get('/classes', asyncHandler(getClasses));
 router.put('/classes/:id', asyncHandler(updateClass));
 router.delete('/classes/:id', asyncHandler(deleteClass));
+router.get('/classes/:id/videos', asyncHandler(getClassVideos));
 router.get('/semesters', asyncHandler(getSemesters));
 router.post('/semesters', asyncHandler(createSemester));
 router.delete('/semesters/:id', asyncHandler(deleteSemester));
@@ -32,5 +36,7 @@ router.post('/videos', uploadVideo, asyncHandler(uploadObservation));
 router.get('/videos/:videoId/status', asyncHandler(getVideoStatus));
 router.get('/videos/:videoId/observation', asyncHandler(getObservation));
 router.get('/videos/:videoId/media', asyncHandler(streamVideo));
+router.post('/videos/:videoId/reprocess', asyncHandler(reprocessVideo));
+router.delete('/videos/:videoId', asyncHandler(deleteVideo));
 
 export default router;

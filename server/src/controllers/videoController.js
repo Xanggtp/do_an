@@ -4,7 +4,7 @@ import multer from 'multer';
 import { prisma } from '../config/prisma.js';
 import { config } from '../config/env.js';
 import { enqueueVideoProcessing } from '../queues/videoQueue.js';
-import { createObjectKey, getObjectResponse, persistUpload, removeObject } from '../storage/storage.js';
+import { createObjectKey, getObjectResponse, objectKeyFromFileUrl, persistUpload, removeObject, removePrefix, segmentPrefix } from '../storage/storage.js';
 import { processVideo } from '../workers/aiProcessor.js';
 
 const stagingDirectory = path.resolve(config.uploadDirectory, '.staging');
@@ -29,7 +29,7 @@ async function ownedVideo(videoId, userId) {
   const teacher = await teacherForUser(userId);
   const video = await prisma.video.findFirst({
     where: { id: videoId, class: { teacherId: teacher.id } },
-    include: { class: true, feedback: { orderBy: { timestamp: 'asc' } }, analytics: true }
+    include: { class: true, feedback: { orderBy: { timestamp: 'asc' } }, analytics: true, segments: { orderBy: { index: 'asc' } } }
   });
   if (!video) throw Object.assign(new Error('Video not found.'), { statusCode: 404 });
   return video;
@@ -42,10 +42,43 @@ function serializeVideo(video) {
     fileUrl: video.fileUrl,
     duration: video.duration,
     status: video.status,
+    stage: video.stage,
+    progress: video.progress,
+    resolution: video.resolution,
+    videoCodec: video.videoCodec,
     classId: video.classId,
+    class: video.class ? { id: video.class.id, name: video.class.name, classCode: video.class.classCode, subject: video.class.subject, semester: video.class.semester } : undefined,
     createdAt: video.createdAt,
     processedAt: video.processedAt
   };
+}
+
+function serializeSegment(segment) {
+  return { index: segment.index, startSec: segment.startSec, endSec: segment.endSec, review: segment.review };
+}
+
+/**
+ * Deletes videos (and their feedback, analytics, segments) in one transaction,
+ * then removes the media files. Optionally deletes classes / a semester in the same transaction.
+ */
+async function deleteVideosCascade({ videoWhere, extraOperations = [] }) {
+  const videos = await prisma.video.findMany({ where: videoWhere, select: { id: true, fileUrl: true } });
+  const videoIds = videos.map((v) => v.id);
+  await prisma.$transaction([
+    prisma.feedback.deleteMany({ where: { videoId: { in: videoIds } } }),
+    prisma.analytics.deleteMany({ where: { videoId: { in: videoIds } } }),
+    prisma.videoSegment.deleteMany({ where: { videoId: { in: videoIds } } }),
+    prisma.video.deleteMany({ where: { id: { in: videoIds } } }),
+    ...extraOperations
+  ]);
+  for (const video of videos) {
+    await removeObject(objectKeyFromFileUrl(video.fileUrl)).catch((error) => console.error(`Could not remove video file ${video.id}: ${error.message}`));
+    await removePrefix(segmentPrefix(video.id)).catch((error) => console.error(`Could not remove segments of ${video.id}: ${error.message}`));
+  }
+}
+
+function startProcessing(videoId) {
+  processVideo(videoId).catch((error) => console.error(`Video ${videoId} processing failed: ${error.message}`));
 }
 
 const semesterPattern = /^\d{4}\.[123]$/;
@@ -206,17 +239,10 @@ export async function deleteClass(request, response) {
     return response.status(404).json({ message: 'Class not found.' });
   }
 
-  const videos = await prisma.video.findMany({ where: { classId }, select: { id: true, fileUrl: true } });
-  for (const v of videos) {
-    if (v.fileUrl && typeof v.fileUrl === 'string') {
-      const objectKey = v.fileUrl.startsWith('/api/videos/media/') ? decodeURIComponent(v.fileUrl.split('/').pop()) : v.fileUrl;
-      await removeObject(objectKey).catch(() => {});
-    }
-    await prisma.feedback.deleteMany({ where: { videoId: v.id } }).catch(() => {});
-    await prisma.analytics.deleteMany({ where: { videoId: v.id } }).catch(() => {});
-  }
-  await prisma.video.deleteMany({ where: { classId } }).catch(() => {});
-  await prisma.class.delete({ where: { id: classId } });
+  await deleteVideosCascade({
+    videoWhere: { classId },
+    extraOperations: [prisma.class.delete({ where: { id: classId } })]
+  });
 
   response.json({ message: 'Class deleted successfully.', id: classId });
 }
@@ -256,28 +282,13 @@ export async function deleteSemester(request, response) {
 
   const classIds = classes.map((c) => c.id);
 
-  if (classIds.length > 0) {
-    const videos = await prisma.video.findMany({
-      where: { classId: { in: classIds } },
-      select: { id: true, fileUrl: true }
-    });
-
-    for (const v of videos) {
-      if (v.fileUrl && typeof v.fileUrl === 'string') {
-        const objectKey = v.fileUrl.startsWith('/api/videos/media/')
-          ? decodeURIComponent(v.fileUrl.split('/').pop())
-          : v.fileUrl;
-        await removeObject(objectKey).catch(() => {});
-      }
-      await prisma.feedback.deleteMany({ where: { videoId: v.id } }).catch(() => {});
-      await prisma.analytics.deleteMany({ where: { videoId: v.id } }).catch(() => {});
-    }
-
-    await prisma.video.deleteMany({ where: { classId: { in: classIds } } }).catch(() => {});
-    await prisma.class.deleteMany({ where: { id: { in: classIds } } }).catch(() => {});
-  }
-
-  await prisma.semester.delete({ where: { id: semester.id } });
+  await deleteVideosCascade({
+    videoWhere: { classId: { in: classIds } },
+    extraOperations: [
+      prisma.class.deleteMany({ where: { id: { in: classIds } } }),
+      prisma.semester.delete({ where: { id: semester.id } })
+    ]
+  });
 
   response.json({ message: 'Semester deleted successfully.', id: semester.id, code: semester.code });
 }
@@ -293,11 +304,12 @@ export async function uploadObservation(request, response) {
   let video;
   try {
     const stored = await persistUpload(request.file, objectKey);
-    video = await prisma.video.create({ data: { filename: request.file.originalname, fileUrl: stored.fileUrl, classId, status: 'PENDING' } });
-    video = await prisma.video.update({ where: { id: video.id }, data: { status: 'PROCESSING' } });
+    video = await prisma.video.create({
+      data: { filename: request.file.originalname, fileUrl: stored.fileUrl, classId, status: 'PROCESSING', stage: 'UPLOADED', progress: 0, sizeBytes: request.file.size }
+    });
     if (config.workerMode === 'queue') await enqueueVideoProcessing(video.id);
-    else void processVideo(video.id);
-    response.status(202).json({ videoId: video.id, status: video.status });
+    else startProcessing(video.id);
+    response.status(202).json({ videoId: video.id, status: video.status, stage: video.stage });
   } catch (error) {
     await removeObject(objectKey).catch(() => {});
     if (video) await prisma.video.delete({ where: { id: video.id } }).catch(() => {});
@@ -307,19 +319,66 @@ export async function uploadObservation(request, response) {
 
 export async function getVideoStatus(request, response) {
   const video = await ownedVideo(request.params.videoId, request.user.id);
-  response.json({ videoId: video.id, status: video.status, duration: video.duration, error: video.error });
+  response.json({
+    videoId: video.id,
+    status: video.status,
+    stage: video.stage,
+    progress: video.progress,
+    duration: video.duration,
+    resolution: video.resolution,
+    videoCodec: video.videoCodec,
+    error: video.error,
+    segments: video.segments.map(serializeSegment)
+  });
 }
 
 export async function getObservation(request, response) {
   const video = await ownedVideo(request.params.videoId, request.user.id);
-  if (video.status !== 'COMPLETED') return response.status(video.status === 'FAILED' ? 422 : 202).json({ videoId: video.id, status: video.status, error: video.error });
-  response.json({ video: serializeVideo(video), feedback: video.feedback, analytics: video.analytics });
+  if (video.status !== 'COMPLETED') {
+    return response.status(video.status === 'FAILED' ? 422 : 202).json({ videoId: video.id, status: video.status, stage: video.stage, progress: video.progress, error: video.error });
+  }
+  response.json({ video: serializeVideo(video), feedback: video.feedback, analytics: video.analytics, segments: video.segments.map(serializeSegment) });
 }
 
 export async function streamVideo(request, response) {
   const video = await ownedVideo(request.params.videoId, request.user.id);
-  const objectKey = video.fileUrl.startsWith('/api/videos/media/') ? decodeURIComponent(video.fileUrl.split('/').pop()) : video.fileUrl;
-  const object = await getObjectResponse(objectKey);
+  const object = await getObjectResponse(objectKeyFromFileUrl(video.fileUrl));
   if (object.url) return response.redirect(object.url);
   return response.sendFile(object.path);
+}
+export async function reprocessVideo(request, response) {
+  const video = await ownedVideo(request.params.videoId, request.user.id);
+  if (video.status === 'PROCESSING' && !['FAILED', 'COMPLETED'].includes(video.stage)) {
+    return response.status(409).json({ message: 'This video is already being processed.' });
+  }
+  await prisma.video.update({ where: { id: video.id }, data: { status: 'PROCESSING', stage: 'UPLOADED', progress: 0, error: null } });
+  if (config.workerMode === 'queue') await enqueueVideoProcessing(video.id, { force: true });
+  else startProcessing(video.id);
+  response.status(202).json({ videoId: video.id, status: 'PROCESSING', stage: 'UPLOADED' });
+}
+
+export async function deleteVideo(request, response) {
+  const video = await ownedVideo(request.params.videoId, request.user.id);
+  await deleteVideosCascade({ videoWhere: { id: video.id } });
+  response.json({ message: 'Video deleted successfully.', id: video.id });
+}
+
+export async function getClassVideos(request, response) {
+  const teacher = await teacherForUser(request.user.id);
+  const classId = String(request.params.id || '');
+  if (!/^[0-9a-fA-F]{24}$/.test(classId)) return response.status(404).json({ message: 'Class not found.' });
+  const classRecord = await prisma.class.findFirst({ where: { id: classId, teacherId: teacher.id } });
+  if (!classRecord) return response.status(404).json({ message: 'Class not found.' });
+  const videos = await prisma.video.findMany({
+    where: { classId },
+    orderBy: { createdAt: 'desc' },
+    include: { segments: { where: { index: 1 }, select: { review: true } } }
+  });
+  response.json({
+    videos: videos.map((video) => ({
+      ...serializeVideo(video),
+      error: video.error,
+      summary: video.segments[0]?.review?.content_review?.summary || null
+    }))
+  });
 }

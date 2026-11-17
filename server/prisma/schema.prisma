@@ -14,6 +14,15 @@ enum VideoStatus {
   FAILED
 }
 
+enum VideoStage {
+  UPLOADED
+  VALIDATING
+  SEGMENTING
+  ANALYZING
+  COMPLETED
+  FAILED
+}
+
 enum FeedbackCategory {
   STRENGTH
   GROWTH_OPPORTUNITY
@@ -35,10 +44,10 @@ model User {
 }
 
 model Teacher {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  userId    String   @unique @db.ObjectId
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String     @unique @db.ObjectId
+  createdAt DateTime   @default(now())
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   classes   Class[]
   semesters Semester[]
 }
@@ -56,35 +65,41 @@ model Semester {
 }
 
 model Class {
-  id         String   @id @default(auto()) @map("_id") @db.ObjectId
-  name       String
-  classCode  String?
-  subject    String
-  semester   String
-  semesterId String?  @db.ObjectId
-  teacherId  String   @db.ObjectId
-  createdAt  DateTime @default(now())
-  teacher    Teacher  @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  id             String    @id @default(auto()) @map("_id") @db.ObjectId
+  name           String
+  classCode      String?
+  subject        String
+  semester       String
+  semesterId     String?   @db.ObjectId
+  teacherId      String    @db.ObjectId
+  createdAt      DateTime  @default(now())
+  teacher        Teacher   @relation(fields: [teacherId], references: [id], onDelete: Cascade)
   semesterRecord Semester? @relation(fields: [semesterId], references: [id])
-  videos     Video[]
+  videos         Video[]
 
-  @@index([teacherId, createdAt])
   @@unique([teacherId, semester, name])
+  @@index([teacherId, createdAt])
 }
 
 model Video {
-  id          String      @id @default(auto()) @map("_id") @db.ObjectId
+  id          String         @id @default(auto()) @map("_id") @db.ObjectId
   filename    String
   fileUrl     String
   duration    Float?
-  status      VideoStatus @default(PENDING)
-  classId     String      @db.ObjectId
-  createdAt   DateTime    @default(now())
+  status      VideoStatus    @default(PENDING)
+  stage       VideoStage     @default(UPLOADED)
+  progress    Int            @default(0)
+  sizeBytes   Float?
+  resolution  String?
+  videoCodec  String?
+  classId     String         @db.ObjectId
+  createdAt   DateTime       @default(now())
   processedAt DateTime?
   error       String?
-  class       Class       @relation(fields: [classId], references: [id], onDelete: Cascade)
+  class       Class          @relation(fields: [classId], references: [id], onDelete: Cascade)
   feedback    Feedback[]
   analytics   Analytics?
+  segments    VideoSegment[]
 
   @@index([classId, createdAt])
   @@index([status, createdAt])
@@ -104,9 +119,23 @@ model Feedback {
 }
 
 model Analytics {
-  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
-  videoId            String   @unique @db.ObjectId
+  id                 String @id @default(auto()) @map("_id") @db.ObjectId
+  videoId            String @unique @db.ObjectId
   copusTimeline      Json
   bloomsDistribution Json
-  video              Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  video              Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+}
+
+model VideoSegment {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  videoId    String   @db.ObjectId
+  index      Int
+  startSec   Float
+  endSec     Float
+  storageKey String
+  review     Json?
+  createdAt  DateTime @default(now())
+  video      Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, index])
 }

@@ -35,7 +35,10 @@ export const config = {
   redisUrl: process.env.REDIS_URL || 'redis://127.0.0.1:6379',
   workerMode: process.env.WORKER_MODE || 'stub',
   s3Bucket: process.env.S3_BUCKET,
-  s3Region: process.env.S3_REGION || 'us-east-1'
+  s3Region: process.env.S3_REGION || 'us-east-1',
+  segmentSeconds: Number(process.env.SEGMENT_SECONDS || 120),
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash'
 };
 
 if (!['local', 's3'].includes(config.uploadProvider)) throw new Error('UPLOAD_PROVIDER must be local or s3.');
