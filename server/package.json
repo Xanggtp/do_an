@@ -8,7 +8,7 @@
     "start": "node src/server.js",
     "worker": "node src/workers/videoWorker.js",
     "worker:segment": "node src/workers/lectureSegmentWorker.js",
-    "test": "node --test --test-concurrency=1 \"test/*.test.mjs\"",
+    "test": "node --test --test-concurrency=1 --test-timeout=180000 --test-force-exit \"test/*.test.mjs\"",
     "test:segment": "node test-segment.mjs",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",

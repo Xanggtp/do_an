@@ -9,8 +9,11 @@ import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import request from 'supertest';
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Progress lines on CI so a slow MongoDB download or a stuck step is visible in the log.
+const step = (message) => { if (process.env.CI) console.log(`[test-setup] ${new Date().toISOString()} ${message}`); };
 
 export async function startTestApp(envOverrides = {}) {
+  step('starting in-memory MongoDB (first run downloads the binary)');
   const replSet = await MongoMemoryReplSet.create({ replSet: { count: 1, storageEngine: 'wiredTiger' } });
   const uploadDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'classmind-test-'));
 
@@ -25,11 +28,14 @@ export async function startTestApp(envOverrides = {}) {
     ...envOverrides
   });
 
+  step(`MongoDB ready at ${replSet.getUri()}; pushing Prisma schema`);
   execFileSync(process.execPath, [path.join(serverRoot, 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], {
     cwd: serverRoot,
     env: process.env,
-    stdio: 'pipe'
+    stdio: 'pipe',
+    timeout: 120000
   });
+  step('schema pushed; loading app');
 
   const { default: app } = await import('../src/app.js');
   const { prisma } = await import('../src/config/prisma.js');
