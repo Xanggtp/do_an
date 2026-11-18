@@ -13,3 +13,6 @@ uploads/
 server/uploads/
 server/.test-output/
 *.stackdump
+
+# Internal planning notes (local only)
+PLAN.md
