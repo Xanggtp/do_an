@@ -19,7 +19,8 @@ export async function startTestApp(envOverrides = {}) {
 
   Object.assign(process.env, {
     NODE_ENV: 'test',
-    DATABASE_URL: replSet.getUri('classmind_test'),
+    // Connect straight to the single member: on Linux runners replica-set discovery can stall Prisma.
+    DATABASE_URL: `${replSet.getUri('classmind_test')}&directConnection=true`,
     JWT_SECRET: 'test-secret-do-not-use',
     UPLOAD_PROVIDER: 'local',
     UPLOAD_DIRECTORY: uploadDirectory,
@@ -28,13 +29,22 @@ export async function startTestApp(envOverrides = {}) {
     ...envOverrides
   });
 
-  step(`MongoDB ready at ${replSet.getUri()}; pushing Prisma schema`);
-  execFileSync(process.execPath, [path.join(serverRoot, 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], {
-    cwd: serverRoot,
-    env: process.env,
-    stdio: 'pipe',
-    timeout: 120000
-  });
+  step(`MongoDB ready at ${process.env.DATABASE_URL}; pushing Prisma schema`);
+  try {
+    execFileSync(process.execPath, [path.join(serverRoot, 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], {
+      cwd: serverRoot,
+      env: process.env,
+      stdio: 'pipe',
+      timeout: 90000
+    });
+  } catch (error) {
+    error.message += `
+prisma db push stdout:
+${error.stdout ?? ''}
+stderr:
+${error.stderr ?? ''}`;
+    throw error;
+  }
   step('schema pushed; loading app');
 
   const { default: app } = await import('../src/app.js');
