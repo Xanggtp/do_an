@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { MongoMemoryReplSet } from 'mongodb-memory-server';
 import request from 'supertest';
@@ -31,10 +32,11 @@ export async function startTestApp(envOverrides = {}) {
 
   step(`MongoDB ready at ${process.env.DATABASE_URL}; pushing Prisma schema`);
   try {
-    execFileSync(process.execPath, [path.join(serverRoot, 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], {
+    // Must be async: a sync child blocks this process, so mongod's log pipe fills up on Linux
+    // and mongod stalls mid-write, deadlocking the schema push.
+    await promisify(execFile)(process.execPath, [path.join(serverRoot, 'node_modules', 'prisma', 'build', 'index.js'), 'db', 'push', '--skip-generate'], {
       cwd: serverRoot,
       env: process.env,
-      stdio: 'pipe',
       timeout: 90000
     });
   } catch (error) {
