@@ -1189,3 +1189,49 @@ html[data-theme='dark'] .input-action:hover { color: #e6eee9; background: #30423
 @keyframes star-twinkle { 0%, 100% { opacity: .15; } 50% { opacity: .8; } }
 @media (prefers-reduced-motion: reduce) { .art-galaxy *, .art-stars span { animation: none !important; } }
 @media (max-width: 680px) { .art-galaxy { display: none; } }
+
+/* Sidebar: profile sits at the bottom next to log out */
+.sidebar-bottom { display: flex; flex-direction: column; gap: 14px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.12); }
+.sidebar-bottom .profile-widget { margin-top: 0; }
+.sidebar-bottom .sidebar-logout { margin-top: 0; padding: 4px 2px; }
+
+/* Reports page */
+.reports-page { max-width: 1180px; }
+.reports-header { align-items: flex-end; }
+.reports-filter { min-width: 200px; }
+.reports-alert, .reports-loading { margin-top: 32px; }
+.reports-loading { display: grid; place-items: center; min-height: 160px; color: #718079; }
+.reports-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-top: 44px; }
+.reports-kpi { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 16px; background: #fbfaf6; border: 1px solid #e0e2da; border-radius: 6px; }
+.reports-kpi-label { display: flex; align-items: center; gap: 6px; color: #718079; font-size: .66rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+.reports-kpi strong { color: #18211f; font-family: 'DM Sans', sans-serif; font-size: 1.7rem; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.reports-kpi-note { color: #95a099; font-size: .64rem; line-height: 1.4; }
+.reports-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.reports-card-wide { grid-column: 1 / -1; }
+.reports-card-note { margin: 8px 0 4px; color: #87928c; font-size: .68rem; }
+.reports-chart { height: 260px; margin-top: 8px; }
+.reports-empty { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 16px; padding: 44px 20px; text-align: center; color: #718079; border: 1px dashed #cfd5cc; border-radius: 6px; }
+.reports-empty h2 { margin: 0; color: #35433d; font-size: 1rem; }
+.reports-empty p { max-width: 420px; margin: 0 0 6px; font-size: .75rem; }
+.reports-empty .primary-button { display: inline-flex; align-items: center; gap: 7px; width: auto; }
+.reports-table-card { margin-top: 16px; padding: 17px; background: #fbfaf6; border: 1px solid #e0e2da; border-radius: 6px; }
+.reports-table-scroll { overflow-x: auto; margin-top: 12px; }
+.reports-table { width: 100%; border-collapse: collapse; font-size: .72rem; }
+.reports-table th { padding: 9px 10px; color: #718079; font-size: .62rem; font-weight: 800; text-align: left; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #dce0d7; white-space: nowrap; }
+.reports-table td { padding: 11px 10px; color: #35433d; border-bottom: 1px solid #e6e8e0; vertical-align: top; }
+.reports-table td strong { display: block; }
+.reports-table td span { color: #95a099; font-size: .64rem; }
+.reports-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.reports-table tbody tr:hover { background: rgba(123,154,134,.07); }
+.reports-table-empty { margin: 14px 0 0; color: #87928c; font-size: .74rem; }
+.reports-table-empty a { color: #d6634d; font-weight: 800; }
+@media (max-width: 1100px) { .reports-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .reports-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .reports-grid { grid-template-columns: 1fr; } .reports-header { display: block; } .reports-filter { margin-top: 22px; } }
+html[data-theme='dark'] .reports-kpi, html[data-theme='dark'] .reports-table-card { background: #1a2723; border-color: #30423a; }
+html[data-theme='dark'] .reports-kpi strong, html[data-theme='dark'] .reports-table td, html[data-theme='dark'] .reports-empty h2 { color: #e6eee9; }
+html[data-theme='dark'] .reports-kpi-label, html[data-theme='dark'] .reports-table th, html[data-theme='dark'] .reports-card-note, html[data-theme='dark'] .reports-empty { color: #9baea4; }
+html[data-theme='dark'] .reports-table th, html[data-theme='dark'] .reports-table td { border-color: #30423a; }
+html[data-theme='dark'] .reports-empty { border-color: #30423a; }
+
+/* Keep the sidebar (and the profile / log out at its bottom) in view on long pages */
+.app-sidebar { position: sticky; top: 0; height: 100vh; min-height: 0; overflow-y: auto; }

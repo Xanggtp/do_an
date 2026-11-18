@@ -12,6 +12,7 @@ import { SettingsPage } from './pages/SettingsPage.jsx';
 import { UploadPage } from './pages/UploadPage.jsx';
 import { ObservationPage } from './pages/ObservationPage.jsx';
 import { ClassesPage } from './pages/ClassesPage.jsx';
+import { ReportsPage } from './pages/ReportsPage.jsx';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import './styles.css';
 
@@ -31,6 +32,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/classes" element={<ClassesPage />} />
             <Route path="/observation/:videoId" element={<ObservationPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
