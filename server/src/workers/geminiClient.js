@@ -7,8 +7,29 @@ const API_ROOT = 'https://generativelanguage.googleapis.com';
 const FILE_READY_TIMEOUT_MS = 5 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
 
+/** Default Gemini model for new uploads and fallback. */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+
 /** Models a teacher can pick in Settings. */
-export const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.5-pro'];
+export const GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite', 'gemini-3.5-flash'];
+
+/** Retired models previously stored in DB/.env mapped to active equivalents. */
+const LEGACY_MODEL_MAP = {
+  'gemini-2.5-flash': 'gemini-3.8-flash',
+  'gemini-2.5-flash-lite': 'gemini-3.5-flash-lite',
+  'gemini-2.5-pro': 'gemini-3.8-flash',
+  'gemini-2.0-flash': 'gemini-3.8-flash',
+  'gemini-1.5-flash': 'gemini-3.8-flash',
+  'gemini-1.5-pro': 'gemini-3.8-flash'
+};
+
+const EXCLUDED_MODEL_PATTERN = /(tts|live|embedding|imagen|veo|aqa|bison|gecko|robotics|computer-use|learnlm)/i;
+
+export function normalizeGeminiModel(model) {
+  const value = typeof model === 'string' ? model.trim() : '';
+  if (!value) return DEFAULT_GEMINI_MODEL;
+  return LEGACY_MODEL_MAP[value] || value;
+}
 
 /**
  * Which Gemini credentials analyze a teacher's videos:
@@ -20,25 +41,55 @@ export function resolveGeminiCredentials(user) {
   if (user?.geminiApiKeyEnc) {
     const apiKey = decryptSecret(user.geminiApiKeyEnc);
     if (!apiKey) throw new Error('The saved Gemini API key can no longer be read. Please enter it again in Settings.');
-    return { apiKey, model: user.geminiModel || config.geminiModel, source: 'user' };
+    return { apiKey, model: normalizeGeminiModel(user.geminiModel || config.geminiModel), source: 'user' };
   }
   if (config.geminiApiKey && config.workerMode !== 'stub') {
-    return { apiKey: config.geminiApiKey, model: config.geminiModel, source: 'server' };
+    return { apiKey: config.geminiApiKey, model: normalizeGeminiModel(config.geminiModel), source: 'server' };
   }
   return null;
 }
 
+const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+const FALLBACK_STATUSES = new Set([404, 429, 503]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(response) {
+  const header = response.headers.get('retry-after');
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(15000, seconds * 1000);
+  const dateMs = Date.parse(header) - Date.now();
+  return Number.isFinite(dateMs) && dateMs > 0 ? Math.min(15000, dateMs) : null;
+}
+
 async function geminiFetch(credentials, url, options = {}) {
-  const response = await fetch(url, {
-    ...options,
-    headers: { 'x-goog-api-key': credentials.apiKey, ...(options.headers || {}) },
-    signal: AbortSignal.timeout(options.timeoutMs || REQUEST_TIMEOUT_MS)
-  });
-  if (!response.ok) {
+  const { retries = 0, timeoutMs, ...fetchOptions } = options;
+  const baseDelayMs = Number(process.env.GEMINI_RETRY_DELAY_MS || 2000);
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      headers: { 'x-goog-api-key': credentials.apiKey, ...(fetchOptions.headers || {}) },
+      signal: AbortSignal.timeout(timeoutMs || REQUEST_TIMEOUT_MS)
+    });
+    if (response.ok) return response;
+
     const body = await response.text().catch(() => '');
-    throw Object.assign(new Error(`Gemini API ${response.status}: ${body.slice(0, 300)}`), { geminiStatus: response.status });
+    const retryable = RETRYABLE_STATUSES.has(response.status);
+    if (retryable && attempt < retries) {
+      const retryAfter = parseRetryAfterMs(response);
+      const delayMs = retryAfter ?? Math.min(15000, baseDelayMs * (2 ** attempt));
+      await sleep(delayMs);
+      continue;
+    }
+    throw Object.assign(
+      new Error(`Gemini API ${response.status}: ${body.slice(0, 300)}`),
+      { geminiStatus: response.status, geminiBody: body }
+    );
   }
-  return response;
 }
 
 /**
@@ -61,6 +112,7 @@ async function uploadFile(credentials, filePath, mimeType = 'video/mp4') {
   const { size } = await fs.promises.stat(filePath);
   const start = await geminiFetch(credentials, `${API_ROOT}/upload/v1beta/files`, {
     method: 'POST',
+    retries: 2,
     headers: {
       'X-Goog-Upload-Protocol': 'resumable',
       'X-Goog-Upload-Command': 'start',
@@ -87,8 +139,8 @@ async function uploadFile(credentials, filePath, mimeType = 'video/mp4') {
   const deadline = Date.now() + FILE_READY_TIMEOUT_MS;
   while (file.state === 'PROCESSING') {
     if (Date.now() > deadline) throw new Error('Gemini file processing timed out.');
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    file = await (await geminiFetch(credentials, `${API_ROOT}/v1beta/${file.name}`)).json();
+    await sleep(3000);
+    file = await (await geminiFetch(credentials, `${API_ROOT}/v1beta/${file.name}`, { retries: 2 })).json();
   }
   if (file.state !== 'ACTIVE') throw new Error(`Gemini file is not usable (state: ${file.state}).`);
   return file;
@@ -193,32 +245,109 @@ function buildPrompt({ index, total, startSec, endSec, className, subject, previ
   ].filter(Boolean).join('\n');
 }
 
+function extractSuggestedModels(errorText, failedModel) {
+  const matches = [...String(errorText || '').matchAll(/models\/([a-z0-9._-]+)/gi)]
+    .map((match) => match[1])
+    .filter((name) => name && name !== failedModel && !EXCLUDED_MODEL_PATTERN.test(name));
+  return [...new Set(matches)];
+}
+
+async function discoverGeminiModels(credentials) {
+  try {
+    const response = await geminiFetch(credentials, `${API_ROOT}/v1beta/models?pageSize=100`, { timeoutMs: 15000 });
+    const data = await response.json();
+    const candidates = (data.models || [])
+      .filter((item) =>
+        Array.isArray(item.supportedGenerationMethods) &&
+        item.supportedGenerationMethods.includes('generateContent') &&
+        typeof item.name === 'string' &&
+        item.name.startsWith('models/gemini-')
+      )
+      .map((item) => item.name.replace(/^models\//, ''))
+      .filter((name) => !EXCLUDED_MODEL_PATTERN.test(name));
+
+    const rank = (name) => {
+      if (name === DEFAULT_GEMINI_MODEL) return 0;
+      if (name.includes('flash') && !name.includes('lite')) return 1;
+      if (name.includes('flash-lite')) return 2;
+      if (name.includes('pro')) return 3;
+      return 4;
+    };
+    return candidates.sort((a, b) => rank(a) - rank(b) || b.localeCompare(a, undefined, { numeric: true }));
+  } catch {
+    return [];
+  }
+}
+
 /** Sends one local segment file to Gemini and returns the parsed JSON review. */
 export async function analyzeSegmentWithGemini(credentials, filePath, context) {
   const file = await uploadFile(credentials, filePath);
+  const requestBody = JSON.stringify({
+    contents: [{
+      role: 'user',
+      parts: [
+        { file_data: { mime_type: file.mimeType || 'video/mp4', file_uri: file.uri } },
+        { text: buildPrompt(context) }
+      ]
+    }],
+    generationConfig: {
+      temperature: 0.2,
+      responseMimeType: 'application/json',
+      responseSchema: segmentResponseSchema
+    }
+  });
+
   try {
-    const response = await geminiFetch(credentials, `${API_ROOT}/v1beta/models/${credentials.model}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          role: 'user',
-          parts: [
-            { file_data: { mime_type: file.mimeType || 'video/mp4', file_uri: file.uri } },
-            { text: buildPrompt(context) }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-          responseSchema: segmentResponseSchema
+    const tried = new Set();
+    const queue = [normalizeGeminiModel(credentials.model)];
+    let discovered = false;
+    let lastFallbackError = null;
+
+    while (queue.length > 0) {
+      const model = queue.shift();
+      if (!model || tried.has(model)) continue;
+      tried.add(model);
+
+      try {
+        const response = await geminiFetch(credentials, `${API_ROOT}/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+          method: 'POST',
+          retries: 2,
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody
+        });
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '';
+        if (!text) throw new Error(`Gemini returned no content (finishReason: ${data.candidates?.[0]?.finishReason || 'unknown'}).`);
+        // Persist the working model on credentials so remaining segments skip unavailable/overloaded models
+        credentials.model = model;
+        return JSON.parse(text);
+      } catch (error) {
+        if (!FALLBACK_STATUSES.has(error.geminiStatus)) throw error;
+        lastFallbackError = error;
+
+        // Try any replacement model recommended by Google's 404 message, then other active models
+        const suggested = error.geminiStatus === 404 ? extractSuggestedModels(error.geminiBody || error.message, model) : [];
+        for (const candidate of [...suggested, ...GEMINI_MODELS]) {
+          if (!tried.has(candidate) && !queue.includes(candidate)) queue.push(candidate);
         }
-      })
-    });
-    const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '';
-    if (!text) throw new Error(`Gemini returned no content (finishReason: ${data.candidates?.[0]?.finishReason || 'unknown'}).`);
-    return JSON.parse(text);
+
+        // If all known models failed with 404/503/429, query Google's models list dynamically
+        if (queue.every((candidate) => tried.has(candidate)) && !discovered) {
+          discovered = true;
+          const available = await discoverGeminiModels(credentials);
+          let added = 0;
+          for (const candidate of available) {
+            if (!tried.has(candidate) && !queue.includes(candidate)) {
+              queue.push(candidate);
+              added += 1;
+              if (added >= 5) break;
+            }
+          }
+        }
+      }
+    }
+
+    throw lastFallbackError || new Error('No compatible Gemini model is available for this API key.');
   } finally {
     await deleteFile(credentials, file.name);
   }

@@ -35,6 +35,11 @@ function formatClock(seconds) {
   return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
 }
 
+function todayDateInput() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 export function UploadPage() {
   const { t, language } = usePreferences();
   const isVi = language === 'vi';
@@ -48,6 +53,7 @@ export function UploadPage() {
   const pollRef = useRef(null);
   const uploadRef = useRef(null);
   const [files, setFiles] = useState({});
+  const [lectureDate, setLectureDate] = useState(todayDateInput);
   const [classes, setClasses] = useState(initialClass ? [initialClass] : []);
   const [selectedClassId, setSelectedClassId] = useState(targetClassId || initialClass?.id || '');
   const [loadingClasses, setLoadingClasses] = useState(!initialClass);
@@ -157,6 +163,7 @@ export function UploadPage() {
 
     const formData = new FormData();
     formData.append('classId', assignedClass.id);
+    if (lectureDate) formData.append('lectureDate', lectureDate);
     formData.append('video', files.video);
     const upload = uploadWithProgress('/api/videos/upload', formData, setProgress);
     uploadRef.current = upload;
@@ -301,7 +308,7 @@ export function UploadPage() {
                 })}
               </div>
 
-              <div className="upload-options">
+              <div className="upload-options upload-options-grid">
                 <div className="upload-class-select-wrap">
                   <label className="field-label">{t('assignedClass')}</label>
                   {assignedClass ? (
@@ -324,6 +331,16 @@ export function UploadPage() {
                     </div>
                   )}
                 </div>
+                <label className="field upload-date-field">
+                  <span className="field-label">{t('lectureDate')}</span>
+                  <input
+                    type="date"
+                    className="input"
+                    value={lectureDate}
+                    onChange={(event) => setLectureDate(event.target.value)}
+                    required
+                  />
+                </label>
               </div>
 
               {error && <p className="form-alert">{error}</p>}

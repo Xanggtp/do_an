@@ -51,7 +51,7 @@ function useObservation(videoId, materials) {
     video: {
       id: video.id,
       title: video.filename.replace(/\.mp4$/i, ''),
-      date: video.createdAt,
+      date: video.lectureDate || video.createdAt,
       duration: video.duration,
       source: `/api/videos/${video.id}/media`,
       className: video.class?.name,

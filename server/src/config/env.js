@@ -38,7 +38,7 @@ export const config = {
   s3Region: process.env.S3_REGION || 'us-east-1',
   segmentSeconds: Number(process.env.SEGMENT_SECONDS || 120),
   geminiApiKey: process.env.GEMINI_API_KEY || '',
-  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
   // Encrypts API keys teachers save in Settings; falls back to JWT_SECRET when empty.
   settingsEncryptionKey: process.env.SETTINGS_ENCRYPTION_KEY || '',
   // Requests per IP per 15 minutes; set RATE_LIMIT_ENABLED=false to turn limits off (e.g. load tests).

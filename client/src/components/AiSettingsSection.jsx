@@ -97,7 +97,7 @@ export function AiSettingsSection() {
             <label className="field">
               <span className="field-label">{t('aiModel')}</span>
               <select className="input" value={model} onChange={(event) => setModel(event.target.value)}>
-                {settings.models.map((name) => <option key={name} value={name}>{name}{name === 'gemini-2.5-flash' ? ` (${t('aiRecommended')})` : ''}</option>)}
+                {settings.models.map((name, index) => <option key={name} value={name}>{name}{index === 0 ? ` (${t('aiRecommended')})` : ''}</option>)}
               </select>
               <span className="field-hint">{t('aiModelHint')}</span>
             </label>

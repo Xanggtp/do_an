@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUpRight, BookOpen, Check, Clock3, Film, Pencil, Plus, Search, SlidersHorizontal, Trash2, UploadCloud, X } from 'lucide-react';
+import { ArrowUpRight, BookOpen, Calendar, Check, Clock3, Film, LoaderCircle, Pencil, Plus, RotateCcw, Search, SlidersHorizontal, Trash2, UploadCloud, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout.jsx';
 import { DeleteClassModal } from '../components/DeleteClassModal.jsx';
@@ -14,6 +14,12 @@ const thumbnails = [
   'linear-gradient(135deg, #18211f 0%, #35433d 62%, #d6a65d 62%)'
 ];
 
+function toDateKey(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
 function toVideoCard(video, index, t) {
   const stageSummary = {
     UPLOADED: t('pending'),
@@ -21,10 +27,12 @@ function toVideoCard(video, index, t) {
     SEGMENTING: `${t('processing')} · ${video.progress || 0}%`,
     ANALYZING: `${t('processing')} · ${video.progress || 0}%`
   };
+  const date = video.lectureDate || video.createdAt;
   return {
     ...video,
     title: video.filename.replace(/\.mp4$/i, ''),
-    date: video.createdAt,
+    date,
+    dateKey: toDateKey(date),
     summary: video.status === 'FAILED' ? (video.error || t('failed')) : (video.summary || stageSummary[video.stage] || ''),
     thumbnail: thumbnails[index % thumbnails.length]
   };
@@ -38,28 +46,99 @@ function formatDuration(seconds) {
   return seconds ? `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}` : 'Preparing';
 }
 
-function VideoCard({ video, language, t }) {
+function VideoCard({ video, language, t, onDelete, onRetry, isDeleting, isRetrying }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const statusLabels = { COMPLETED: t('completed'), PROCESSING: t('processing'), PENDING: t('pending'), FAILED: t('failed') };
-  const card = (
-    <article className="observation-card">
+  const isCompleted = video.status === 'COMPLETED';
+  const isFailed = video.status === 'FAILED';
+
+  const topContent = (
+    <>
       <div className="observation-thumbnail" style={{ background: video.thumbnail }}>
         <span className="thumbnail-kicker"><Film size={13} /> {t('observation')}</span>
         <span className={`status-pill status-${video.status.toLowerCase()}`}><span /> {statusLabels[video.status]}</span>
-        {video.status === 'COMPLETED' && <span className="thumbnail-play"><ArrowUpRight size={19} /></span>}
+        {isCompleted && <span className="thumbnail-play"><ArrowUpRight size={19} /></span>}
       </div>
-      <div className="observation-card-body">
-        <div className="observation-card-meta"><span>{formatDate(video.date, language)}</span><span>{formatDuration(video.duration)}</span></div>
+      <div className="observation-card-main">
+        <div className="observation-card-meta">
+          <span className="observation-card-date"><Calendar size={12} /> {formatDate(video.date, language)}</span>
+          <span>{formatDuration(video.duration)}</span>
+        </div>
         <h3>{video.title}</h3>
         <p>{video.summary}</p>
-        <div className="observation-card-footer">
-          <span className="card-status-label">{statusLabels[video.status]}</span>
-          {video.status === 'COMPLETED' && <span className="card-open">{t('openAnalysis')} <ArrowUpRight size={14} /></span>}
+      </div>
+    </>
+  );
+
+  return (
+    <article className={`observation-card${isCompleted ? ' is-clickable' : ''}${isFailed ? ' is-failed' : ''}`}>
+      {isCompleted ? (
+        <Link to={`/observation/${video.id}`} className="observation-card-link">
+          {topContent}
+        </Link>
+      ) : (
+        topContent
+      )}
+      <div className="observation-card-footer">
+        {isCompleted ? (
+          <Link to={`/observation/${video.id}`} className="card-open">
+            {t('openAnalysis')} <ArrowUpRight size={14} />
+          </Link>
+        ) : (
+          <span className={`card-status-label status-text-${video.status.toLowerCase()}`}>{statusLabels[video.status]}</span>
+        )}
+        <div className="observation-card-actions">
+          {isFailed && !confirmingDelete && (
+            <button
+              type="button"
+              className="obs-action-btn retry"
+              onClick={() => onRetry(video)}
+              disabled={isRetrying || isDeleting}
+              title={t('retryProcessing')}
+              aria-label={t('retryProcessing')}
+            >
+              {isRetrying ? <LoaderCircle size={13} className="spin" /> : <RotateCcw size={13} />}
+              <span>{t('retryProcessing')}</span>
+            </button>
+          )}
+          {confirmingDelete ? (
+            <div className="obs-delete-confirm">
+              <button
+                type="button"
+                className="obs-action-btn delete is-confirm"
+                onClick={() => onDelete(video)}
+                disabled={isDeleting}
+              >
+                {isDeleting ? <LoaderCircle size={13} className="spin" /> : <Trash2 size={13} />}
+                <span>{t('confirmDeleteObservation')}</span>
+              </button>
+              <button
+                type="button"
+                className="obs-action-btn cancel"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={isDeleting}
+                aria-label={t('cancelEdit')}
+                title={t('cancelEdit')}
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="obs-action-btn delete"
+              onClick={() => setConfirmingDelete(true)}
+              disabled={isDeleting || isRetrying}
+              title={t('deleteObservation')}
+              aria-label={t('deleteObservation')}
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </div>
     </article>
   );
-
-  return video.status === 'COMPLETED' ? <Link to={`/observation/${video.id}`} className="observation-card-link">{card}</Link> : card;
 }
 
 export function DashboardPage() {
@@ -222,6 +301,21 @@ export function DashboardPage() {
   const activeClass = filteredClasses.find((item) => item.id === activeClassId) || filteredClasses[0] || null;
   const activeClassKey = activeClass?.id || '';
   const [videos, setVideos] = useState([]);
+  const [videoReloadTick, setVideoReloadTick] = useState(0);
+  const [observationSearch, setObservationSearch] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [deletingVideoId, setDeletingVideoId] = useState('');
+  const [retryingVideoId, setRetryingVideoId] = useState('');
+  const [videoActionError, setVideoActionError] = useState('');
+
+  useEffect(() => {
+    setObservationSearch('');
+    setDateFilter('');
+    setStatusFilter('');
+    setVideoActionError('');
+  }, [activeClassKey]);
+
   useEffect(() => {
     if (!activeClassKey) {
       setVideos([]);
@@ -242,7 +336,49 @@ export function DashboardPage() {
     };
     load();
     return () => { active = false; clearTimeout(timer); };
-  }, [activeClassKey, language]); // t() is recreated every render; language covers label changes
+  }, [activeClassKey, language, videoReloadTick]); // t() is recreated every render; language covers label changes
+
+  const filteredVideos = useMemo(() => {
+    const q = observationSearch.trim().toLowerCase();
+    return videos.filter((video) => {
+      if (dateFilter && video.dateKey !== dateFilter) return false;
+      if (statusFilter && video.status !== statusFilter) return false;
+      if (q) {
+        const hay = `${video.title} ${video.summary} ${formatDate(video.date, language)} ${video.dateKey}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [videos, observationSearch, dateFilter, statusFilter, language]);
+
+  const hasObservationFilters = Boolean(observationSearch.trim() || dateFilter || statusFilter);
+
+  const handleDeleteVideo = async (video) => {
+    setDeletingVideoId(video.id);
+    setVideoActionError('');
+    try {
+      await api(`/api/videos/${video.id}`, { method: 'DELETE' });
+      setVideos((prev) => prev.filter((item) => item.id !== video.id));
+    } catch (error) {
+      setVideoActionError(error.message || 'Failed to delete observation.');
+    } finally {
+      setDeletingVideoId('');
+    }
+  };
+
+  const handleRetryVideo = async (video) => {
+    setRetryingVideoId(video.id);
+    setVideoActionError('');
+    try {
+      await api(`/api/videos/${video.id}/reprocess`, { method: 'POST' });
+      setVideoReloadTick((tick) => tick + 1);
+    } catch (error) {
+      setVideoActionError(error.message || 'Failed to retry processing.');
+    } finally {
+      setRetryingVideoId('');
+    }
+  };
+
   const firstName = user?.name?.split(' ')[0] || '';
 
   return (
@@ -254,6 +390,15 @@ export function DashboardPage() {
             <h1>{t('goodMorning')} {firstName}.</h1>
             <p className="page-subtitle">{t('dashboardSubtitle')}</p>
           </div>
+          {activeClass && (
+            <Link
+              to={`/upload?classId=${activeClass.id}`}
+              state={{ classId: activeClass.id, classItem: activeClass }}
+              className="primary-button"
+            >
+              <UploadCloud size={16} /> {t('newObservation')}
+            </Link>
+          )}
         </header>
         <div className="workspace-layout">
           <aside className="class-rail">
@@ -418,10 +563,104 @@ export function DashboardPage() {
                     </div>
                     <p>{activeClass.classCode ? `${activeClass.classCode} · ${activeClass.subject}` : activeClass.subject}</p>
                   </div>
+                  {videos.length > 0 && (
+                    <span className="video-count">
+                      {hasObservationFilters
+                        ? `${filteredVideos.length} / ${videos.length} ${videos.length === 1 ? t('video') : t('videos')}`
+                        : `${videos.length} ${videos.length === 1 ? t('video') : t('videos')}`}
+                    </span>
+                  )}
                 </div>
-                {videos.length ? (
+                {videos.length > 0 && (
+                  <div className="observation-filter-bar">
+                    <label className="search-field observation-search-field">
+                      <Search size={14} aria-hidden="true" />
+                      <span className="sr-only">{t('searchObservations')}</span>
+                      <input
+                        type="text"
+                        value={observationSearch}
+                        onChange={(event) => setObservationSearch(event.target.value)}
+                        placeholder={t('searchObservations')}
+                      />
+                      {observationSearch && (
+                        <button
+                          type="button"
+                          className="filter-clear-icon"
+                          onClick={() => setObservationSearch('')}
+                          aria-label={t('clearSearch')}
+                          title={t('clearSearch')}
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </label>
+                    <label className="observation-date-filter" title={t('filterByDate')}>
+                      <Calendar size={14} aria-hidden="true" />
+                      <span className="sr-only">{t('filterByDate')}</span>
+                      <input
+                        type="date"
+                        value={dateFilter}
+                        onChange={(event) => setDateFilter(event.target.value)}
+                        aria-label={t('filterByDate')}
+                      />
+                      {dateFilter && (
+                        <button
+                          type="button"
+                          className="filter-clear-icon"
+                          onClick={() => setDateFilter('')}
+                          aria-label={t('clearFilters')}
+                          title={t('clearFilters')}
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </label>
+                    <select
+                      className="observation-status-filter"
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value)}
+                      aria-label={t('allStatuses')}
+                    >
+                      <option value="">{t('allStatuses')}</option>
+                      <option value="COMPLETED">{t('completed')}</option>
+                      <option value="PROCESSING">{t('processing')}</option>
+                      <option value="FAILED">{t('failed')}</option>
+                    </select>
+                  </div>
+                )}
+                {videoActionError && <div className="form-alert" style={{ marginBottom: 16 }}>{videoActionError}</div>}
+                {filteredVideos.length ? (
                   <div className="observation-grid">
-                    {videos.map((video) => <VideoCard key={video.id} video={video} language={language} t={t} />)}
+                    {filteredVideos.map((video) => (
+                      <VideoCard
+                        key={video.id}
+                        video={video}
+                        language={language}
+                        t={t}
+                        onDelete={handleDeleteVideo}
+                        onRetry={handleRetryVideo}
+                        isDeleting={deletingVideoId === video.id}
+                        isRetrying={retryingVideoId === video.id}
+                      />
+                    ))}
+                  </div>
+                ) : videos.length ? (
+                  <div className="empty-state">
+                    <Film size={23} />
+                    <h3>{t('noMatchingObservations')}</h3>
+                    <p>{t('tryAnotherSearch')}</p>
+                    <button
+                      type="button"
+                      className="outline-button"
+                      style={{ marginTop: '16px', minHeight: '36px', height: '36px', padding: '0 15px', fontSize: '0.74rem' }}
+                      onClick={() => {
+                        setObservationSearch('');
+                        setDateFilter('');
+                        setStatusFilter('');
+                      }}
+                    >
+                      {t('clearFilters')}
+                    </button>
                   </div>
                 ) : (
                   <div className="empty-state">

@@ -146,7 +146,9 @@ export async function processVideo(videoId) {
         rows.push({ videoId, index: i + 1, startSec: cursor, endSec: Math.min(media.duration, cursor + length), storageKey });
         cursor += length;
       }
-      await prisma.videoSegment.createMany({ data: rows });
+      if (rows.length > 0) {
+        await prisma.videoSegment.createMany({ data: rows });
+      }
       return { rows, duration: media.duration };
     });
 
@@ -177,13 +179,18 @@ export async function processVideo(videoId) {
 
     // 5. Lecture-level analytics
     const analysis = summarizeLecture(analyzed, segmentRows.duration);
-    await prisma.$transaction([
+    const tx = [
       prisma.feedback.deleteMany({ where: { videoId } }),
-      prisma.analytics.deleteMany({ where: { videoId } }),
-      prisma.feedback.createMany({ data: analysis.feedback.map((item) => ({ ...item, videoId })) }),
+      prisma.analytics.deleteMany({ where: { videoId } })
+    ];
+    if (analysis.feedback.length > 0) {
+      tx.push(prisma.feedback.createMany({ data: analysis.feedback.map((item) => ({ ...item, videoId })) }));
+    }
+    tx.push(
       prisma.analytics.create({ data: { videoId, copusTimeline: analysis.copusTimeline, bloomsDistribution: analysis.bloomsDistribution } }),
       prisma.video.update({ where: { id: videoId }, data: { status: 'COMPLETED', stage: 'COMPLETED', progress: 100, processedAt: new Date(), error: null } })
-    ]);
+    );
+    await prisma.$transaction(tx);
   } catch (error) {
     await prisma.video.update({ where: { id: videoId }, data: { status: 'FAILED', stage: 'FAILED', error: error.message.slice(0, 500) } }).catch(() => {});
     throw error;

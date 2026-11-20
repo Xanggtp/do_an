@@ -35,6 +35,18 @@ async function ownedVideo(videoId, userId) {
   return video;
 }
 
+function parseLectureDate(value) {
+  if (!value) return new Date();
+  const raw = String(value).trim();
+  if (!raw) return new Date();
+  // Anchor YYYY-MM-DD inputs at 12:00 UTC so local timezone conversions never shift the calendar day
+  const candidate = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T12:00:00.000Z`) : new Date(raw);
+  if (Number.isNaN(candidate.getTime())) {
+    throw Object.assign(new Error('Invalid lecture date.'), { statusCode: 400 });
+  }
+  return candidate;
+}
+
 function serializeVideo(video) {
   return {
     id: video.id,
@@ -48,6 +60,7 @@ function serializeVideo(video) {
     videoCodec: video.videoCodec,
     classId: video.classId,
     class: video.class ? { id: video.class.id, name: video.class.name, classCode: video.class.classCode, subject: video.class.subject, semester: video.class.semester } : undefined,
+    lectureDate: video.lectureDate || video.createdAt,
     createdAt: video.createdAt,
     processedAt: video.processedAt
   };
@@ -304,12 +317,23 @@ export async function uploadObservation(request, response) {
   const classRecord = await prisma.class.findFirst({ where: { id: classId, teacherId: teacher.id } });
   if (!classRecord) return response.status(404).json({ message: 'Class not found.' });
 
+  const lectureDate = parseLectureDate(request.body.lectureDate);
+  const supportsLectureDate = Boolean(prisma._runtimeDataModel?.models?.Video?.fields?.some((field) => field.name === 'lectureDate'));
   const objectKey = createObjectKey(request.file.originalname);
   let video;
   try {
     const stored = await persistUpload(request.file, objectKey);
     video = await prisma.video.create({
-      data: { filename: request.file.originalname, fileUrl: stored.fileUrl, classId, status: 'PROCESSING', stage: 'UPLOADED', progress: 0, sizeBytes: request.file.size }
+      data: {
+        filename: request.file.originalname,
+        fileUrl: stored.fileUrl,
+        classId,
+        ...(supportsLectureDate ? { lectureDate } : { createdAt: lectureDate }),
+        status: 'PROCESSING',
+        stage: 'UPLOADED',
+        progress: 0,
+        sizeBytes: request.file.size
+      }
     });
     if (config.workerMode === 'queue') await enqueueVideoProcessing(video.id);
     else startProcessing(video.id);
@@ -378,6 +402,7 @@ export async function getClassVideos(request, response) {
     orderBy: { createdAt: 'desc' },
     include: { segments: { where: { index: 1 }, select: { review: true } } }
   });
+  videos.sort((a, b) => new Date(b.lectureDate || b.createdAt) - new Date(a.lectureDate || a.createdAt));
   response.json({
     videos: videos.map((video) => ({
       ...serializeVideo(video),

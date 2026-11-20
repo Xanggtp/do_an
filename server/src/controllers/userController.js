@@ -1,7 +1,7 @@
 import { config } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 import { decryptSecret, encryptSecret } from '../utils/secretBox.js';
-import { GEMINI_MODELS, verifyGeminiKey } from '../workers/geminiClient.js';
+import { GEMINI_MODELS, normalizeGeminiModel, verifyGeminiKey } from '../workers/geminiClient.js';
 import { safeUser } from '../utils/auth.js';
 
 export function getProfile(request, response) {
@@ -33,7 +33,7 @@ function aiSettingsView(user) {
   return {
     hasPersonalKey,
     keyHint: hasPersonalKey ? user.geminiKeyHint || '' : '',
-    model: user.geminiModel || config.geminiModel,
+    model: normalizeGeminiModel(user.geminiModel || config.geminiModel),
     models: GEMINI_MODELS,
     serverKeyAvailable,
     // What the next upload will use
@@ -57,7 +57,7 @@ export async function updateAiSettings(request, response) {
   }
 
   const data = {};
-  const effectiveModel = model || request.user.geminiModel || config.geminiModel;
+  const effectiveModel = model || normalizeGeminiModel(request.user.geminiModel || config.geminiModel);
   if (apiKey) {
     await verifyGeminiKey(apiKey, effectiveModel);
     data.geminiApiKeyEnc = encryptSecret(apiKey);
